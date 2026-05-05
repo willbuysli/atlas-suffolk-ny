@@ -14,7 +14,7 @@ import { Shield, Users, BookOpen, Flame } from "lucide-react";
 // ─── CLIENT CONFIG (customized per client) ───────────────────────────────────
 export const CLIENT_CONFIG = {
   companyName: "Will Buys LI",
-  userEmail: "willbuysLI.com",
+  userEmail: "will@willbuysli.com",
   userPassword: "Will1074$",
   accentColor: "#F97316",
   counties: [
