@@ -2,6 +2,8 @@ import { Lead, CountyConfig } from "./base.js";
 import * as suffolkNY from "./suffolk_ny.js";
 import * as missouri from "./missouri.js";
 import * as wisconsin from "./wisconsin.js";
+import { scrapeAlabama } from "./alabama.js";
+import { scrapeOhio } from "./ohio.js";
 
 // Registry of scrapers by state+county
 const SCRAPER_REGISTRY: Record<string, (fromDate: string, toDate: string) => Promise<Lead[]>> = {
@@ -62,6 +64,25 @@ export async function runAllScrapers(
     if (state === "MO") stateScraper = missouri.scrapeAll;
     else if (state === "WI") stateScraper = wisconsin.scrapeAll;
     else if (state === "NY") stateScraper = suffolkNY.scrapeAll;
+    
+    // AL and OH use county-by-county scrapers
+    if (state === "AL" || state === "OH") {
+      for (const county of stateCounties) {
+        try {
+          onProgress?.(`Scraping ${county.name} ${county.state}...`);
+          const leads = state === "AL"
+            ? await scrapeAlabama(county.name, fromDate, toDate)
+            : await scrapeOhio(county.name, fromDate, toDate);
+          allLeads.push(...leads);
+          onProgress?.(`✓ ${county.name} ${county.state}: ${leads.length} leads`);
+        } catch (e) {
+          const msg = `Error scraping ${county.name} ${county.state}: ${(e as Error).message}`;
+          errors.push(msg);
+          onProgress?.(`✗ ${msg}`);
+        }
+      }
+      continue;
+    }
     
     if (stateScraper) {
       try {
