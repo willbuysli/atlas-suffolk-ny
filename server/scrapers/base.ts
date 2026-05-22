@@ -62,6 +62,54 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
   throw new Error(`Failed after ${retries} retries: ${url}`);
 }
 
+// ─── ScraperAPI proxy helper ─────────────────────────────────────────────────
+// Routes requests through ScraperAPI residential proxy to bypass IP blocks.
+// Falls back to direct fetch if SCRAPER_API_KEY is not set.
+export async function proxiedFetch(
+  url: string,
+  options: { render?: boolean; method?: string; body?: string; contentType?: string; retries?: number } = {}
+): Promise<Response> {
+  const key = process.env.SCRAPER_API_KEY;
+  const { render = false, method = "GET", body, contentType, retries = 3 } = options;
+
+  if (!key) {
+    // No key — fall back to direct fetch
+    return fetchWithRetry(url, { method, body, headers: contentType ? { "Content-Type": contentType } : {} });
+  }
+
+  const params = new URLSearchParams({
+    api_key: key,
+    url,
+    country_code: "us",
+    ...(render ? { render: "true" } : {}),
+  });
+  const proxyUrl = `https://api.scraperapi.com?${params}`;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const fetchOpts: RequestInit = {
+        method,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          ...(contentType ? { "Content-Type": contentType } : {}),
+        },
+        ...(body ? { body } : {}),
+      };
+      const res = await fetch(proxyUrl, fetchOpts);
+      if (res.ok) return res;
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise(r => setTimeout(r, 3000 * (i + 1)));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+    }
+  }
+  throw new Error(`proxiedFetch failed after ${retries} retries: ${url}`);
+}
+
 export interface CountyConfig {
   name: string;
   state: string;

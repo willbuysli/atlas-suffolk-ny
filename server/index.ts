@@ -76,12 +76,23 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
   return totalNew;
 }
 
-// ─── DAILY CRON (6 AM local) ──────────────────────────────────────────────────
+// ─── DAILY CRON (6 AM EST / EDT) ───────────────────────────────────────────────
+function getNext6amEST(): Date {
+  // Calculate next 6:00 AM in America/New_York (handles EST/EDT automatically)
+  const now = new Date();
+  const nyStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const nyNow = new Date(nyStr);
+  const next6am = new Date(nyNow);
+  next6am.setHours(6, 0, 0, 0);
+  if (next6am <= nyNow) next6am.setDate(next6am.getDate() + 1);
+  // Offset between UTC and NY time
+  const offsetMs = now.getTime() - nyNow.getTime();
+  return new Date(next6am.getTime() + offsetMs);
+}
+
 function scheduleDailyScrape() {
   const now = new Date();
-  const next6am = new Date(now);
-  next6am.setHours(6, 0, 0, 0);
-  if (next6am <= now) next6am.setDate(next6am.getDate() + 1);
+  const next6am = getNext6amEST();
   const msUntil = next6am.getTime() - now.getTime();
 
   setTimeout(async () => {
@@ -99,7 +110,8 @@ function scheduleDailyScrape() {
     scheduleDailyScrape(); // reschedule for next day
   }, msUntil);
 
-  console.log(`[Cron] Next scrape scheduled for ${next6am.toISOString()}`);
+  const estStr = next6am.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' });
+  console.log(`[Cron] Next scrape scheduled for ${estStr} EST (${next6am.toISOString()})`);
 }
 
 // ─── EXPRESS APP ──────────────────────────────────────────────────────────────
