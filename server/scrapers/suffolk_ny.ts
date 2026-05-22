@@ -812,16 +812,22 @@ export async function scrapeAll(fromDate: string, toDate: string): Promise<Lead[
     { name: "Divorce",         fn: () => scrapeDivorce(fromDate, toDate) },
   ];
 
-  const results = await Promise.allSettled(tasks.map(t => t.fn()));
   const allLeads: Lead[] = [];
+  const TASK_TIMEOUT_MS = 90_000; // 90s per source
 
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    if (r.status === "fulfilled") {
-      console.log(`[Suffolk NY] ${tasks[i].name}: ${r.value.length} leads`);
-      allLeads.push(...r.value);
-    } else {
-      console.error(`[Suffolk NY] ${tasks[i].name} failed:`, r.reason);
+  for (const task of tasks) {
+    try {
+      console.log(`[Suffolk NY] Starting: ${task.name}`);
+      const leads = await Promise.race([
+        task.fn(),
+        new Promise<Lead[]>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout after 90s`)), TASK_TIMEOUT_MS)
+        ),
+      ]);
+      console.log(`[Suffolk NY] ${task.name}: ${leads.length} leads`);
+      allLeads.push(...leads);
+    } catch (e) {
+      console.error(`[Suffolk NY] ${task.name} failed:`, (e as Error).message);
     }
   }
 
