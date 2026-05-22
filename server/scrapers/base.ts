@@ -38,6 +38,8 @@ export function formatDate(d: string | null | undefined): string | null {
   return parsed.toISOString().split("T")[0];
 }
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 export async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 3): Promise<Response> {
   const headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -47,7 +49,14 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
   };
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(url, { ...options, headers });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, { ...options, headers, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (res.ok || res.status === 404) return res;
       if (res.status === 429 || res.status >= 500) {
         await new Promise(r => setTimeout(r, 2000 * (i + 1)));
@@ -95,7 +104,14 @@ export async function proxiedFetch(
         },
         ...(body ? { body } : {}),
       };
-      const res = await fetch(proxyUrl, fetchOpts);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS * 2); // proxy gets 60s
+      let res: Response;
+      try {
+        res = await fetch(proxyUrl, { ...fetchOpts, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (res.ok) return res;
       if (res.status === 429 || res.status >= 500) {
         await new Promise(r => setTimeout(r, 3000 * (i + 1)));
