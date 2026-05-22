@@ -76,32 +76,32 @@ export async function scrapeLisPendens(fromDate: string, toDate: string): Promis
         `&dateFrom=${encodeURIComponent(toNyscefDate(fromDate))}` +
         `&dateTo=${encodeURIComponent(toNyscefDate(toDate))}`;
 
-      const res = await proxiedFetch(url, { render: true });
+      const res = await proxiedFetch(url);
       if (!res.ok) continue;
       const html = await res.text();
       const $ = cheerio.load(html);
 
-      $("table tr").each((i, row) => {
+      $('table tr').each((i, row) => {
         if (i === 0) return;
-        const cells = $(row).find("td");
+        const cells = $(row).find('td');
         if (cells.length < 3) return;
-        const caseNum = $(cells[0]).text().trim();
-        const parties = $(cells[1]).text().trim();
+        const indexNum = $(cells[0]).text().trim();
+        const caseTitle = $(cells[1]).text().trim();
         const filedDate = $(cells[2]).text().trim();
-        if (!caseNum || caseNum === "Index Number") return;
+        if (!indexNum || indexNum === 'Index Number') return;
 
-        const parts = parties.split(/\s+v\.?\s+/i);
+        const parts = caseTitle.split(/\s+v\.?\s+/i);
         const plaintiff = parts[0]?.trim() || null;
         const defendant = parts[1]?.trim() || null;
 
-        leads.push(makeLead("Pre-Foreclosure", {
+        leads.push(makeLead('Pre-Foreclosure', {
           owner_name: defendant,
           lender: plaintiff,
-          case_number: caseNum,
+          case_number: indexNum,
           filing_date: formatDate(filedDate),
-          description: `Residential Mortgage Foreclosure — ${parties}`,
+          description: `Residential Mortgage Foreclosure — ${caseTitle}`,
           source_url: url,
-          raw_data: JSON.stringify({ caseNum, parties, filedDate }),
+          raw_data: JSON.stringify({ indexNum, caseTitle, filedDate }),
         }));
       });
     } catch (e) {
@@ -327,10 +327,9 @@ export async function scrapeSherifffSales(fromDate: string, toDate: string): Pro
   const leads: Lead[] = [];
 
   const urls = [
-    "https://www.suffolkcountysheriff.com/civil-process/real-property-auction/",
-    "https://www.suffolkcountysheriff.com/civil/real-property-auction",
-    "https://www.suffolkcountysheriff.com/civil-process/",
-    "https://www.suffolkcountysheriff.com/",
+    "https://www.suffolkcountyny.gov/Departments/Sheriff/Civil-Bureau/Real-Property-Sales",
+    "https://www.suffolkcountyny.gov/Departments/Sheriff/Civil-Bureau",
+    "https://www.suffolkcountyny.gov/Departments/Sheriff",
   ];
 
   for (const url of urls) {
@@ -487,7 +486,77 @@ export async function scrapeCraigslistFSBO(fromDate: string, toDate: string): Pr
 export async function scrapeObituaries(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
 
-  // Legacy.com Newsday obituaries
+  // Legacy.com Newsday obituaries — parse JSON-LD SearchResultsPage + obit links
+  for (let page = 1; page <= 5; page++) {
+    try {
+      const url =
+        `https://www.legacy.com/us/obituaries/newsday/browse` +
+        `?dateRange=last30Days&countryId=1&regionId=35&page=${page}`;
+      const res = await proxiedFetch(url);
+      if (!res.ok) break;
+      const html = await res.text();
+      const $ = cheerio.load(html);
+
+      let found = 0;
+
+      // Method 1: JSON-LD SearchResultsPage itemListElement
+      $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+          const d = JSON.parse($(el).html() || "");
+          if (d["@type"] === "SearchResultsPage") {
+            const items: unknown[] = d?.mainEntity?.itemListElement || [];
+            for (const item of items) {
+              const i = item as Record<string, unknown>;
+              const name = String(i.name || "").trim();
+              const itemUrl = String(i.url || "").trim();
+              if (!name || name.length < 3) continue;
+              leads.push(makeLead("Obituary", {
+                owner_name: name,
+                city: "Suffolk County, NY",
+                description: `Obituary — ${name}`,
+                source_url: itemUrl || url,
+              }));
+              found++;
+            }
+          }
+        } catch {}
+      });
+
+      // Method 2: Anchor links to obituary pages
+      if (found === 0) {
+        $("a[href*='/obituaries/newsday/name/']").each((_, el) => {
+          const name = $(el).text().trim();
+          const href = $(el).attr("href") || "";
+          if (!name || name.length < 3 || name.toLowerCase().includes("submit")) return;
+          leads.push(makeLead("Obituary", {
+            owner_name: name,
+            city: "Suffolk County, NY",
+            description: `Obituary — ${name}`,
+            source_url: href.startsWith("http") ? href : `https://www.legacy.com${href}`,
+          }));
+          found++;
+        });
+      }
+
+      if (found === 0) break; // No more pages
+
+      // Fake the old __NEXT_DATA__ block to satisfy the rest of the original code
+      const match = html.match(/<script id="__NEXT_DATA__"[^>]*>(\s*)<\/script>/);
+      if (match) {
+        // empty block — skip old parsing
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+      continue; // skip old parsing below
+    } catch (e) {
+      console.error(`[Suffolk NY] Obituaries (page ${page}) error:`, e);
+      break;
+    }
+  }
+
+  if (leads.length > 0) return leads;
+
+  // ---- OLD PARSING BELOW (kept as fallback, will only run if leads.length === 0) ----
   for (let page = 1; page <= 4; page++) {
     try {
       const url =
@@ -546,7 +615,7 @@ export async function scrapeObituaries(fromDate: string, toDate: string): Promis
     }
   }
 
-  // Fallback: Newsday obituaries page
+  // Fallback: Newsday obituaries page (only if both Legacy methods failed)
   if (leads.length === 0) {
     try {
       const res = await proxiedFetch("https://www.newsday.com/obituaries");
@@ -762,14 +831,14 @@ export async function scrapeDivorce(fromDate: string, toDate: string): Promise<L
       `&dateFrom=${encodeURIComponent(toNyscefDate(fromDate))}` +
       `&dateTo=${encodeURIComponent(toNyscefDate(toDate))}`;
 
-    const res = await proxiedFetch(url, { render: true });
+    const res = await proxiedFetch(url);
     if (!res.ok) return leads;
     const html = await res.text();
     const $ = cheerio.load(html);
 
-    $("table tr").each((i, row) => {
+    $('table tr').each((i, row) => {
       if (i === 0) return;
-      const cells = $(row).find("td");
+      const cells = $(row).find('td');
       if (cells.length < 3) return;
       const indexNum = $(cells[0]).text().trim();
       const caseTitle = $(cells[1]).text().trim();
@@ -777,9 +846,9 @@ export async function scrapeDivorce(fromDate: string, toDate: string): Promise<L
       if (!caseTitle || caseTitle.length < 3) return;
 
       const parts = caseTitle.split(/\s+v\.?\s+/i);
-      const ownerName = parts.join(" & ");
+      const ownerName = parts.join(' & ');
 
-      leads.push(makeLead("Divorce", {
+      leads.push(makeLead('Divorce', {
         owner_name: ownerName,
         case_number: indexNum,
         filing_date: formatDate(filedDate),
