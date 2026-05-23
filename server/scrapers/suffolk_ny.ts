@@ -200,14 +200,16 @@ export async function scrapeTaxDelinquent(fromDate: string, toDate: string): Pro
   const leads: Lead[] = [];
 
   // Primary: NY ORPS API — residential properties with high delinquency indicators
-  // We use roll_section=5 (tax-exempt/delinquent) and property class 210-280 (residential)
-  // Socrata SoQL: filter by county=Suffolk, residential class, roll_section=5
+  // ORPS roll_section=1 = taxable properties (the main residential roll)
+  // We sort by assessment_total DESC to surface high-value properties likely to have delinquency issues
+  // Note: ORPS is an assessment roll, not a tax lien roll — use as a property enrichment source
   try {
-    // roll_section 5 = properties with tax liens / delinquent
+    // roll_section 1 = taxable residential properties
     // property_class 210 = 1-family, 220 = 2-family, 230 = 3-family, 240 = rural, 280 = multi
     const orpsUrl =
-      `${ORPS_API}?$where=county_name='Suffolk' AND roll_section='5'` +
-      `&$limit=200&$order=full_market_value+DESC` +
+      `${ORPS_API}?$where=county_name='Suffolk' AND roll_section='1'` +
+      ` AND property_class BETWEEN '210' AND '280'` +
+      `&$limit=200&$order=assessment_total+DESC` +
       `&$select=primary_owner_first_name,primary_owner_last_name,` +
       `parcel_address_number,parcel_address_street,parcel_address_suff,` +
       `mailing_address_number,mailing_address_street,mailing_address_city,` +
@@ -1040,7 +1042,7 @@ export async function scrapeOutOfStateOwners(fromDate: string, toDate: string): 
     // Residential property classes: 210=1fam, 220=2fam, 230=3fam, 240=rural, 250=seasonal, 260=seasonal, 270=mobile, 280=multi
     const orpsUrl =
       `${ORPS_API}?$where=county_name='Suffolk'` +
-      ` AND mailing_address_state NOT IN ('NY', 'N Y', '')` +
+      ` AND mailing_address_state!='NY'` +
       ` AND property_class BETWEEN '210' AND '280'` +
       `&$limit=200&$order=full_market_value+DESC` +
       `&$select=primary_owner_first_name,primary_owner_last_name,` +
