@@ -13,3 +13,5 @@ cmds = ["export PATH=/usr/local/bin:$PATH && pnpm run build"]
 
 [start]
 cmd = "node dist/index.js"
+
+# cache-bust: 1779922063
