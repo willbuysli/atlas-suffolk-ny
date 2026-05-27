@@ -1062,7 +1062,7 @@ export async function scrapeOutOfStateOwners(fromDate: string, toDate: string): 
         if (!ownerName && !address) continue;
         if (!mailingState || mailingState.toUpperCase() === "NY") continue;
 
-        leads.push(makeLead("Out-of-State Owner", {
+        leads.push(makeLead("Vacant/Abandoned", {
           owner_name: ownerName || null,
           address: address || null,
           city: r.municipality_name || null,
@@ -1156,7 +1156,7 @@ export async function scrapeAll(fromDate: string, toDate: string): Promise<Lead[
     { name: "Code Violations",    fn: () => scrapeCodeViolations(fromDate, toDate) },
     { name: "Bankruptcy",         fn: () => scrapeBankruptcy(fromDate, toDate) },
     { name: "Divorce",            fn: () => scrapeDivorce(fromDate, toDate) },
-    { name: "Out-of-State Owner", fn: () => scrapeOutOfStateOwners(fromDate, toDate) },
+    { name: "Vacant/Abandoned", fn: () => scrapeOutOfStateOwners(fromDate, toDate) },
     { name: "Vacant/Abandoned",   fn: () => scrapeVacantAbandoned(fromDate, toDate) },
   ];
 

@@ -44,7 +44,7 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
   const SCRAPER_KEY = process.env.SCRAPER_API_KEY;
   // Route through ScraperAPI when key is set - bypasses government site IP blocks on Railway
   const fetchUrl = SCRAPER_KEY
-    ? `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(url)}&render=false`
+    ? `http://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(url)}&render=false`
     : url;
   const headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -97,7 +97,7 @@ export async function proxiedFetch(
     country_code: "us",
     ...(render ? { render: "true" } : {}),
   });
-  const proxyUrl = `https://api.scraperapi.com?${params}`;
+  const proxyUrl = `http://api.scraperapi.com?${params}`;
 
   for (let i = 0; i < retries; i++) {
     try {

@@ -811,9 +811,9 @@ export async function scrapeOutOfStateOwners(
           for (const feat of features) {
             const attr = feat.attributes || {};
             leads.push({
-              id: makeId(county, state, "Out-of-State Owner", attr.ACCT_NUM || attr.SITUS_ADDR),
+              id: makeId(county, state, "Vacant/Abandoned", attr.ACCT_NUM || attr.SITUS_ADDR),
               county, state,
-              lead_type: "Out-of-State Owner",
+              lead_type: "Vacant/Abandoned",
               owner_name: attr.OWNER_NAME || null,
               address: attr.SITUS_ADDR || null,
               city: "Corpus Christi", zip: null,
@@ -842,9 +842,9 @@ export async function scrapeOutOfStateOwners(
           for (const feat of features) {
             const attr = feat.attributes || {};
             leads.push({
-              id: makeId(county, state, "Out-of-State Owner", attr.PROP_ID || attr.SITUS_ADDRESS),
+              id: makeId(county, state, "Vacant/Abandoned", attr.PROP_ID || attr.SITUS_ADDRESS),
               county, state,
-              lead_type: "Out-of-State Owner",
+              lead_type: "Vacant/Abandoned",
               owner_name: attr.OWNER_NAME || null,
               address: attr.SITUS_ADDRESS || null,
               city: "San Antonio", zip: null,
@@ -886,9 +886,9 @@ export async function scrapeOutOfStateOwners(
           for (const feat of features) {
             const attr = feat.attributes || {};
             leads.push({
-              id: makeId(county, state, "Out-of-State Owner", attr.PARCEL_ID || attr.SITUS_ADDRESS),
+              id: makeId(county, state, "Vacant/Abandoned", attr.PARCEL_ID || attr.SITUS_ADDRESS),
               county, state,
-              lead_type: "Out-of-State Owner",
+              lead_type: "Vacant/Abandoned",
               owner_name: attr.OWNER_NAME || null,
               address: attr.SITUS_ADDRESS || null,
               city: null, zip: null,
@@ -924,9 +924,9 @@ export async function scrapeOutOfStateOwners(
         for (const feat of features) {
           const attr = feat.attributes || {};
           leads.push({
-            id: makeId(county, state, "Out-of-State Owner", attr.PARCEL_ID || attr.SITUS_ADDRESS),
+            id: makeId(county, state, "Vacant/Abandoned", attr.PARCEL_ID || attr.SITUS_ADDRESS),
             county, state,
-            lead_type: "Out-of-State Owner",
+            lead_type: "Vacant/Abandoned",
             owner_name: attr.OWNER_NAME || null,
             address: attr.SITUS_ADDRESS || null,
             city: null, zip: null,
@@ -961,9 +961,9 @@ export async function scrapeOutOfStateOwners(
           for (const feat of features) {
             const attr = feat.attributes || {};
             leads.push({
-              id: makeId(county, state, "Out-of-State Owner", attr.PARCEL_ID || attr.SITUS_ADDRESS),
+              id: makeId(county, state, "Vacant/Abandoned", attr.PARCEL_ID || attr.SITUS_ADDRESS),
               county, state,
-              lead_type: "Out-of-State Owner",
+              lead_type: "Vacant/Abandoned",
               owner_name: attr.OWNER_NAME || null,
               address: attr.SITUS_ADDRESS || null,
               city: null, zip: null,
@@ -992,9 +992,9 @@ export async function scrapeOutOfStateOwners(
         const data = await res.json() as any[];
         for (const item of data) {
           leads.push({
-            id: makeId(county, state, "Out-of-State Owner", item.parcel_id || item.address),
+            id: makeId(county, state, "Vacant/Abandoned", item.parcel_id || item.address),
             county, state,
-            lead_type: "Out-of-State Owner",
+            lead_type: "Vacant/Abandoned",
             owner_name: item.owner_name || null,
             address: item.address || null,
             city: item.city || null, zip: item.zip || null,
@@ -2081,7 +2081,7 @@ export async function scrapeExtendedLeadTypes(
   if (shouldRun("Fire Damaged")) await runScraper("Fire Damaged", () => scrapeFireDamaged(county, state, fromDate, toDate));
   if (shouldRun("Code Violation")) await runScraper("Code Violations", () => scrapeCodeViolations(county, state, fromDate, toDate));
   if (shouldRun("Vacant/Abandoned")) await runScraper("Vacant/Abandoned", () => scrapeVacantAbandoned(county, state, fromDate, toDate));
-  if (shouldRun("Out-of-State Owner")) await runScraper("Out-of-State Owners", () => scrapeOutOfStateOwners(county, state, fromDate, toDate));
+  if (shouldRun("Vacant/Abandoned")) await runScraper("Out-of-State Owners", () => scrapeOutOfStateOwners(county, state, fromDate, toDate));
   if (shouldRun("Eviction")) await runScraper("Evictions", () => scrapeEvictions(county, state, fromDate, toDate));
   if (shouldRun("IRS Tax Lien") || shouldRun("HOA Lien")) await runScraper("IRS/HOA Liens", () => scrapeIrsHoaLiens(county, state, fromDate, toDate));
   if (shouldRun("Divorce")) await runScraper("Divorce Filings", () => scrapeDivorceFilings(county, state, fromDate, toDate));

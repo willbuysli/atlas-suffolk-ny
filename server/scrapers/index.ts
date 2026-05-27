@@ -170,7 +170,7 @@ export const EXTENDED_LEAD_TYPE_LIST = [
   "Fire Damaged",
   "Code Violation",
   "Vacant/Abandoned",
-  "Out-of-State Owner",
+  "Vacant/Abandoned",
   "Eviction",
   "IRS Tax Lien",
   "HOA Lien",
