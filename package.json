@@ -91,6 +91,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.0",
     "add": "^2.0.6",
     "pnpm": "^10.15.1",
     "prettier": "^3.6.2",
