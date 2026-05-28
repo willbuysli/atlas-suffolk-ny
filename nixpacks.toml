@@ -3,7 +3,7 @@ nixPkgs = ["nodejs_20", "python3", "gcc", "gnumake"]
 [phases.install]
 cmds = [
   "npm install -g pnpm@9 --prefix /usr/local",
-  "export PATH=/usr/local/bin:$PATH && pnpm install --no-frozen-lockfile --prod=false",
+  "export PATH=/usr/local/bin:$PATH && rm -rf node_modules && pnpm install --no-frozen-lockfile --prod=false",
   "export PATH=/usr/local/bin:$PATH && pnpm rebuild better-sqlite3"
 ]
 [phases.build]
@@ -12,4 +12,4 @@ cmds = [
 ]
 [start]
 cmd = "node dist/index.js"
-# cache-bust: v9-node20
+# cache-bust: v10-rm-node-modules
