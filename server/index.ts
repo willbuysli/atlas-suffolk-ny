@@ -2,7 +2,8 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
-import { db, upsertLead, getLeads, updateLeadStatus, getStats, logScrapeRun, finishScrapeRun } from "./db.js";
+import cron from "node-cron";
+import { db, upsertLead, getLeads, updateLeadStatus, getStats, logScrapeRun, finishScrapeRun, getSettings, saveSettings } from "./db.js";
 import { runAllScrapers, getDateRange } from "./scrapers/index.js";
 import { sendDailyReport } from "./email.js";
 
@@ -13,7 +14,7 @@ const __dirname = path.dirname(__filename);
 const CLIENT_CONFIG = {
   name: process.env.CLIENT_NAME || "Atlas",
   email: process.env.CLIENT_EMAIL || "",
-  counties: JSON.parse(process.env.CLIENT_COUNTIES || "[]") as Array<{ name: string; state: string }>,
+  counties: (JSON.parse(process.env.CLIENT_COUNTIES || "[]") as Array<Record<string, string>>).map(c => ({ name: c.name || c.county || "", county: c.name || c.county || "", state: c.state || "" })),
 };
 
 // ─── CSV EXPORT ───────────────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ function leadsToCSV(leads: Record<string, string | null>[]): string {
 // ─── SCRAPE JOB STATE ─────────────────────────────────────────────────────────
 let scrapeInProgress = false;
 let lastScrapeLog: string[] = [];
+let lastScrapeTime: string | null = null;
 
 async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
   if (scrapeInProgress) throw new Error("Scrape already in progress");
@@ -52,7 +54,7 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
 
   try {
     const counties = CLIENT_CONFIG.counties.map(c => ({
-      name: c.name,
+      name: c.name || (c as any).county || "",
       state: c.state,
       leadTypes: ["Pre-Foreclosure", "Tax Delinquent", "Probate", "Sheriff Sale", "FSBO", "Obituary", "Code Violation", "Divorce", "Fire Damage"],
     }));
@@ -69,6 +71,7 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
 
     if (errors.length) lastScrapeLog.push(`⚠ ${errors.length} errors: ${errors.join("; ")}`);
     lastScrapeLog.push(`✓ Done: ${totalNew} new leads saved`);
+    lastScrapeTime = new Date().toISOString();
     console.log(`[Scrape] Complete: ${totalNew} new leads`);
   } finally {
     scrapeInProgress = false;
@@ -76,42 +79,37 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
   return totalNew;
 }
 
-// ─── DAILY CRON (6 AM EST / EDT) ───────────────────────────────────────────────
-function getNext6amEST(): Date {
-  // Calculate next 6:00 AM in America/New_York (handles EST/EDT automatically)
-  const now = new Date();
-  const nyStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
-  const nyNow = new Date(nyStr);
-  const next6am = new Date(nyNow);
-  next6am.setHours(6, 0, 0, 0);
-  if (next6am <= nyNow) next6am.setDate(next6am.getDate() + 1);
-  // Offset between UTC and NY time
-  const offsetMs = now.getTime() - nyNow.getTime();
-  return new Date(next6am.getTime() + offsetMs);
-}
-
-function scheduleDailyScrape() {
-  const now = new Date();
-  const next6am = getNext6amEST();
-  const msUntil = next6am.getTime() - now.getTime();
-
-  setTimeout(async () => {
-    console.log("[Cron] Running daily scrape...");
-    const { fromDate, toDate } = getDateRange(1); // last 24 hours
+// ─── DAILY CRON — 6:00 AM EST every day (restart-safe via node-cron) ─────────
+function startDailyCron() {
+  // 0 11 * * * = 11:00 UTC = 6:00 AM EST / 7:00 AM EDT
+  cron.schedule("0 11 * * *", async () => {
+    console.log("[Cron] Running daily scrape at 6am EST...");
+    const { fromDate, toDate } = getDateRange(1);
     try {
       const newLeads = await runScrapeJob(fromDate, toDate);
-      if (CLIENT_CONFIG.email && newLeads > 0) {
+      const settings = getSettings();
+      const recipients = settings.email_recipients
+        ? settings.email_recipients.split(",").map(e => e.trim()).filter(Boolean)
+        : CLIENT_CONFIG.email ? [CLIENT_CONFIG.email] : [];
+      const smtpReady = settings.smtp_host && settings.smtp_user && settings.smtp_pass
+        && !settings.smtp_pass.startsWith("placeholder");
+      if (recipients.length > 0 && newLeads > 0 && smtpReady) {
         const allLeads = getLeads({ from_date: toDate, to_date: toDate }) as Record<string, string | null>[];
-        await sendDailyReport(CLIENT_CONFIG.email, CLIENT_CONFIG.name, allLeads as any, toDate);
+        for (const recipient of recipients) {
+          await sendDailyReport(recipient, CLIENT_CONFIG.name, allLeads as any, toDate, settings).catch(e =>
+            console.error(`[Cron] Email to ${recipient} failed:`, e)
+          );
+        }
+        console.log(`[Cron] Daily report sent to ${recipients.length} recipient(s)`);
+      } else if (!smtpReady) {
+        console.log("[Cron] Email skipped — SMTP not configured in Settings");
       }
     } catch (e) {
       console.error("[Cron] Daily scrape failed:", e);
     }
-    scheduleDailyScrape(); // reschedule for next day
-  }, msUntil);
+  }, { timezone: "America/New_York" });
 
-  const estStr = next6am.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' });
-  console.log(`[Cron] Next scrape scheduled for ${estStr} EST (${next6am.toISOString()})`);
+  console.log("[Cron] Daily scrape scheduled for 6:00 AM EST (node-cron, restart-safe)");
 }
 
 // ─── EXPRESS APP ──────────────────────────────────────────────────────────────
@@ -126,16 +124,19 @@ async function startServer() {
   // GET /api/leads — list leads with filters
   app.get("/api/leads", (req, res) => {
     const { county, lead_type, status, from_date, to_date, limit, offset } = req.query as Record<string, string>;
-    const leads = getLeads({
+    const filters = {
       county: county || undefined,
       lead_type: lead_type || undefined,
       status: status || undefined,
       from_date: from_date || undefined,
       to_date: to_date || undefined,
-      limit: limit ? parseInt(limit) : 100,
-      offset: offset ? parseInt(offset) : 0,
-    });
-    res.json({ leads, total: leads.length });
+    };
+    const allLeads = getLeads(filters);
+    const total = allLeads.length;
+    const pageLimit = limit ? parseInt(limit) : 100;
+    const pageOffset = offset ? parseInt(offset) : 0;
+    const leads = allLeads.slice(pageOffset, pageOffset + pageLimit);
+    res.json({ leads, total });
   });
 
   // GET /api/leads/export — download CSV
@@ -165,12 +166,57 @@ async function startServer() {
 
   // GET /api/stats — dashboard stats
   app.get("/api/stats", (_req, res) => {
-    res.json(getStats());
+    res.json({ ...getStats(), lastScrapeTime });
   });
 
   // GET /api/config — client config (counties, name)
   app.get("/api/config", (_req, res) => {
     res.json({ name: CLIENT_CONFIG.name, counties: CLIENT_CONFIG.counties });
+  });
+
+  // GET /api/settings — get current settings (masks smtp_pass)
+  app.get("/api/settings", (_req, res) => {
+    const s = getSettings();
+    res.json({
+      smtp_host: s.smtp_host,
+      smtp_port: s.smtp_port,
+      smtp_user: s.smtp_user,
+      smtp_pass: s.smtp_pass && !s.smtp_pass.startsWith("placeholder") ? "••••••••••••••••" : "",
+      smtp_from: s.smtp_from,
+      email_recipients: s.email_recipients,
+      scraper_api_key: s.scraper_api_key ? "••••••••••••••••" : "",
+      smtp_configured: !!(s.smtp_host && s.smtp_user && s.smtp_pass && !s.smtp_pass.startsWith("placeholder")),
+      scraper_api_configured: !!s.scraper_api_key,
+    });
+  });
+
+  // POST /api/settings — save settings
+  app.post("/api/settings", (req, res) => {
+    const allowed = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "email_recipients", "scraper_api_key"];
+    const partial: Record<string, string> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined && req.body[key] !== "••••••••••••••••") {
+        partial[key] = String(req.body[key]);
+      }
+    }
+    saveSettings(partial);
+    res.json({ ok: true });
+  });
+
+  // POST /api/settings/test-email — send a test email
+  app.post("/api/settings/test-email", async (req, res) => {
+    const settings = getSettings();
+    const testRecipient = req.body.email || settings.email_recipients?.split(",")[0]?.trim();
+    if (!testRecipient) return res.status(400).json({ error: "No recipient email" });
+    if (!settings.smtp_host || !settings.smtp_user || !settings.smtp_pass || settings.smtp_pass.startsWith("placeholder")) {
+      return res.status(400).json({ error: "SMTP not configured" });
+    }
+    try {
+      await sendDailyReport(testRecipient, CLIENT_CONFIG.name, [], new Date().toISOString().split("T")[0], settings, true);
+      res.json({ ok: true, message: `Test email sent to ${testRecipient}` });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // POST /api/scrape — trigger manual scrape
@@ -181,8 +227,6 @@ async function startServer() {
     const { from_date, to_date } = req.body;
     const fromDate = from_date || getDateRange(1).fromDate;
     const toDate = to_date || getDateRange(0).toDate;
-
-    // Run in background
     runScrapeJob(fromDate, toDate).catch(console.error);
     res.json({ ok: true, message: "Scrape started", from_date: fromDate, to_date: toDate });
   });
@@ -200,9 +244,26 @@ async function startServer() {
     const { days_back } = req.body;
     const daysBack = Math.min(parseInt(days_back) || 30, 90);
     const { fromDate, toDate } = getDateRange(daysBack);
-
     runScrapeJob(fromDate, toDate).catch(console.error);
     res.json({ ok: true, message: `Historical scrape started (${daysBack} days)`, from_date: fromDate, to_date: toDate });
+  });
+
+  // POST /api/seed — inject demo leads
+  app.post("/api/seed", (_req, res) => {
+    const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+    const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().split("T")[0];
+    const seedLeads = [
+      { id: "MO-JACKSON-PREFC-001", county: "Jackson", state: "MO", lead_type: "Pre-Foreclosure", owner_name: "Darnell & Keisha Washington", address: "3812 Prospect Ave", city: "Kansas City", zip: "64128", mailing_address: "3812 Prospect Ave", mailing_city: "Kansas City", mailing_state: "MO", mailing_zip: "64128", case_number: "2026CV-04821", filing_date: twoDaysAgo, assessed_value: "142000", tax_year: "2025", lender: "Ocwen Loan Servicing", loan_amount: "118000", sale_date: null, sale_amount: null, description: "Jackson County Pre-Foreclosure — Case 2026CV-04821", source_url: "https://www.jacksongov.org/sheriff", status: "New", notes: null, scraped_at: today },
+      { id: "AL-MADISON-PREFC-001", county: "Madison", state: "AL", lead_type: "Pre-Foreclosure", owner_name: "Anthony & Brenda Simmons", address: "4401 Whitesburg Dr S", city: "Huntsville", zip: "35802", mailing_address: "4401 Whitesburg Dr S", mailing_city: "Huntsville", mailing_state: "AL", mailing_zip: "35802", case_number: "CV-2026-000891", filing_date: today, assessed_value: "198000", tax_year: "2025", lender: "Freedom Mortgage", loan_amount: "164000", sale_date: null, sale_amount: null, description: "Madison County Pre-Foreclosure — CV-2026-000891", source_url: "https://www.madisoncountyal.gov/sheriff", status: "New", notes: null, scraped_at: today },
+      { id: "OH-HAMILTON-PREFC-001", county: "Hamilton", state: "OH", lead_type: "Pre-Foreclosure", owner_name: "David & Connie Reardon", address: "5512 Glenway Ave", city: "Cincinnati", zip: "45238", mailing_address: "5512 Glenway Ave", mailing_city: "Cincinnati", mailing_state: "OH", mailing_zip: "45238", case_number: "A2600891", filing_date: today, assessed_value: "178000", tax_year: "2025", lender: "Lakeview Loan Servicing", loan_amount: "149000", sale_date: null, sale_amount: null, description: "Hamilton County Pre-Foreclosure — A2600891", source_url: "https://www.hamiltoncountyohio.gov/sheriff", status: "New", notes: null, scraped_at: today },
+    ];
+    let inserted = 0;
+    for (const lead of seedLeads) {
+      const isNew = upsertLead(lead as unknown as Record<string, string | null>);
+      if (isNew) inserted++;
+    }
+    res.json({ ok: true, inserted, total: seedLeads.length });
   });
 
   // ── Static Frontend ──────────────────────────────────────────────────────────
@@ -217,8 +278,9 @@ async function startServer() {
     console.log(`[Atlas] Server running on http://localhost:${port}/`);
     console.log(`[Atlas] Client: ${CLIENT_CONFIG.name}`);
     console.log(`[Atlas] Counties: ${CLIENT_CONFIG.counties.map(c => `${c.name} ${c.state}`).join(", ")}`);
-    scheduleDailyScrape();
+    startDailyCron();
   });
 }
 
 startServer().catch(console.error);
+// force rebuild Thu May 28 2026
