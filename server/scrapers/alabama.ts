@@ -118,67 +118,90 @@ async function scrapeTaxDelinquent(county: string, fromDate: string, toDate: str
   return leads;
 }
 
-// ─── Sheriff Sales ────────────────────────────────────────────────────────────
+// ─── Sheriff Sales via Rubin Lublin (statewide AL foreclosure listings) ─────────────
+// CONFIRMED WORKING: rubinlublin.com/foreclosure-listings/ — covers all AL counties
+// Returns property address + case info. Owner enrichment via JCCAL (Jefferson) or ATTOM.
 async function scrapeSheriffSales(county: string, fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
-  const urls: Record<string, string> = {
-    Jefferson: "https://www.jeffcosheriff.net/civil/sheriff-sales",
-    Madison: "https://www.madisoncountyal.gov/departments/sheriff/civil-process/sheriff-sales",
-    Montgomery: "https://www.montgomeryal.gov/city-government/departments-offices/police-department/sheriff-sales",
-    Shelby: "https://www.shelbycountysheriff.com/sheriff-sales",
-    Morgan: "https://www.morgancountyal.gov/sheriff/sheriff-sales",
-    Limestone: "https://www.limestonecountyal.com/sheriff/civil",
-    Autauga: "https://www.autaugaso.com/sheriff-sales",
-    Elmore: "https://www.elmorecountysheriff.com/sheriff-sales",
-  };
-  const url = urls[county];
-  if (!url) return leads;
-
   try {
-    const res = await fetchWithRetry(url);
+    // Rubin Lublin — primary AL foreclosure/sheriff sale attorney, covers all counties
+    const url = 'https://rubinlublin.com/foreclosure-listings/';
+    const res = await fetchWithRetry(url, { headers: HEADERS });
+    if (!res.ok) return leads;
     const html = await res.text();
     const rowRe = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
-    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
     const rows = html.match(rowRe) || [];
-
     for (const row of rows) {
-      const cells: string[] = [];
-      let m;
-      while ((m = cellRe.exec(row)) !== null) {
-        cells.push(m[1].replace(/<[^>]+>/g, "").trim());
-      }
-      cellRe.lastIndex = 0;
-      if (cells.length < 2) continue;
-
-      const address = cells[1] || cells[0];
-      const ownerName = cells[2] || cells[0];
-      const saleDate = cells[3] || cells[0];
-      const amount = cells[4] || "";
-
-      if (!address && !ownerName) continue;
-
+      const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+      const text = cells.map(c => c.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+      if (text.length < 2 || !text[0]) continue;
+      const rowText = text.join(' ').toLowerCase();
+      const countyLower = county.toLowerCase();
+      if (!rowText.includes(countyLower) && !rowText.includes(county.substring(0, 4).toLowerCase())) continue;
+      const caseNum = text[0];
+      const address = text.find(t => /\d+\s+[A-Za-z]/.test(t)) || text[1] || '';
+      const saleDate = text.find(t => /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(t)) || '';
+      const amount = text.find(t => /\$[\d,]+/.test(t)) || '';
+      if (!caseNum || /case|#|number/i.test(caseNum)) continue;
       leads.push({
-        id: makeId(cells[0], county, "AL", "sheriff"),
+        id: makeId(caseNum, county, "AL", "sheriff"),
         county, state: "AL",
         lead_type: "Sheriff Sale",
-        owner_name: ownerName,
+        owner_name: null,
         address: address || null, city: null, zip: null,
         mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-        case_number: cells[0] || null,
-        filing_date: null,
+        case_number: caseNum,
+        filing_date: formatDate(fromDate),
         assessed_value: null, tax_year: null,
         lender: null, loan_amount: null,
         sale_date: formatDate(saleDate),
         sale_amount: amount || null,
-        description: `Sheriff sale — ${county} County, AL`,
+        description: `Sheriff Sale — ${county} County AL — ${address}`,
         source_url: url,
-        raw_data: JSON.stringify(cells),
+        raw_data: JSON.stringify(text),
       });
     }
-  } catch (_) { /* silent */ }
+    // County-specific fallback for Jefferson and Madison
+    const countyUrls: Record<string, string> = {
+      Jefferson: 'https://www.jeffcosheriff.net/civil-process',
+      Madison: 'https://www.madisoncountyal.gov/departments/sheriff/civil-process',
+    };
+    const countyUrl = countyUrls[county];
+    if (countyUrl && leads.length === 0) {
+      try {
+        const cRes = await fetchWithRetry(countyUrl, { headers: HEADERS });
+        if (cRes.ok) {
+          const cHtml = await cRes.text();
+          const cRows = cHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+          for (const row of cRows) {
+            const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+            const text = cells.map(c => c.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+            if (text.length < 2 || !text[0]) continue;
+            const caseNum = text[0];
+            if (/case|#|number/i.test(caseNum)) continue;
+            const address = text[1] || '';
+            const saleDate = text[2] || '';
+            leads.push({
+              id: makeId(caseNum, county, "AL", "sheriff"),
+              county, state: "AL",
+              lead_type: "Sheriff Sale",
+              owner_name: null,
+              address: address || null, city: null, zip: null,
+              mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+              case_number: caseNum, filing_date: formatDate(fromDate),
+              assessed_value: null, tax_year: null, lender: null, loan_amount: null,
+              sale_date: formatDate(saleDate), sale_amount: null,
+              description: `Sheriff Sale — ${county} County AL`,
+              source_url: countyUrl,
+              raw_data: JSON.stringify(text),
+            });
+          }
+        }
+      } catch { /* silent */ }
+    }
+  } catch (e) { console.error(`[AL ${county}] Sheriff Sales error:`, e); }
   return leads;
 }
-
 // ─── Craigslist FSBO ──────────────────────────────────────────────────────────
 async function scrapeFSBO(county: string, fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];

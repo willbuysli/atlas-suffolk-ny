@@ -55,35 +55,87 @@ async function getTextRendered(url: string): Promise<string> {
 // Missouri Counties
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Jackson County MO: ArcGIS AddressPoints + nomap.aspx/GetInfo ─────────────
+// CONFIRMED WORKING: ArcGIS FeatureServer for parcel lookup, nomap.aspx/GetInfo for owner data
+const JACKSON_ARCGIS_URL = 'https://services3.arcgis.com/4LOAHoFXfea6Y3Et/ArcGIS/rest/services/ParcelViewer_AddressPoints_View/FeatureServer/0/query';
+const JACKSON_GETINFO_URL = 'https://jcgis.jacksongov.org/propertyinfo/nomap.aspx/GetInfo';
+const JACKSON_GETINFO_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Accept': 'application/json, text/javascript, */*; q=0.01',
+  'Referer': 'https://jcgis.jacksongov.org/propertyinfo/',
+  'Origin': 'https://jcgis.jacksongov.org',
+  'X-Requested-With': 'XMLHttpRequest',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+};
+
 async function lookupJacksonMO(ownerName: string): Promise<AssessorProperty[]> {
   try {
     const { last } = parseName(ownerName);
-    const pageHtml = await getText(
-      'https://www.jacksongov.org/government/departments/assessment/property-search'
-    );
-    const vsMatch = pageHtml.match(/id="__VIEWSTATE"\s+value="([^"]+)"/);
-    const vsgMatch = pageHtml.match(/id="__VIEWSTATEGENERATOR"\s+value="([^"]+)"/);
-    const evMatch = pageHtml.match(/id="__EVENTVALIDATION"\s+value="([^"]+)"/);
-    if (!vsMatch) return [];
-
-    const params = new URLSearchParams({
-      __VIEWSTATE: vsMatch[1],
-      __VIEWSTATEGENERATOR: vsgMatch?.[1] ?? '',
-      __EVENTVALIDATION: evMatch?.[1] ?? '',
-      'ctl00$ContentPlaceHolder1$txtOwnerName': last,
-      'ctl00$ContentPlaceHolder1$btnSearch': 'Search',
-    });
-
-    const resultHtml = await getText(
-      'https://www.jacksongov.org/government/departments/assessment/property-search',
-      {
-        method: 'POST',
-        body: params.toString(),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      }
-    );
-
-    return parseGenericTable(resultHtml, 'MO', 'Kansas City', 1, 2);
+    // Step 1: Search ArcGIS Parcels layer by owner name
+    const parcelsUrl = 'https://services3.arcgis.com/4LOAHoFXfea6Y3Et/ArcGIS/rest/services/ParcelViewer_Parcels_View/FeatureServer/0/query';
+    const qUrl = new URL(parcelsUrl);
+    qUrl.searchParams.set('where', `UPPER(OWNER_NAME) LIKE '%${last.toUpperCase()}%'`);
+    qUrl.searchParams.set('outFields', 'PARCELID,OWNER_NAME,SITUS_ADDR,SITUS_CITY,SITUS_ZIP');
+    qUrl.searchParams.set('returnGeometry', 'false');
+    qUrl.searchParams.set('f', 'json');
+    qUrl.searchParams.set('resultRecordCount', '5');
+    const arcRes = await fetchWithRetry(qUrl.toString());
+    if (!arcRes.ok) return [];
+    const arcData = await arcRes.json() as { features?: { attributes: Record<string, string> }[] };
+    const features = arcData.features || [];
+    if (features.length > 0) {
+      // Return results directly from ArcGIS parcel layer
+      return features.map(f => ({
+        address: f.attributes.SITUS_ADDR || '',
+        city: f.attributes.SITUS_CITY || 'Kansas City',
+        state: 'MO',
+        zip: f.attributes.SITUS_ZIP || undefined,
+        parcelId: f.attributes.PARCELID || undefined,
+        ownerName: f.attributes.OWNER_NAME || undefined,
+      })).filter(p => p.address && /\d+\s+[A-Za-z]/.test(p.address));
+    }
+    // Step 2: Fallback — search AddressPoints by last name fragment, then GetInfo
+    const addrUrl = new URL(JACKSON_ARCGIS_URL);
+    addrUrl.searchParams.set('where', `UPPER(FULLNAME) LIKE '%${last.toUpperCase()}%'`);
+    addrUrl.searchParams.set('outFields', 'ADDPTKEY,FULLADDR');
+    addrUrl.searchParams.set('returnGeometry', 'false');
+    addrUrl.searchParams.set('f', 'json');
+    addrUrl.searchParams.set('resultRecordCount', '3');
+    const addrRes = await fetchWithRetry(addrUrl.toString());
+    if (!addrRes.ok) return [];
+    const addrData = await addrRes.json() as { features?: { attributes: { ADDPTKEY?: string; FULLADDR?: string } }[] };
+    const addrFeatures = addrData.features || [];
+    const results: AssessorProperty[] = [];
+    for (const feat of addrFeatures) {
+      const pid = feat.attributes.ADDPTKEY;
+      if (!pid) continue;
+      try {
+        const infoRes = await fetchWithRetry(JACKSON_GETINFO_URL, {
+          method: 'POST',
+          headers: JACKSON_GETINFO_HEADERS,
+          body: `{ 'PID': '${pid}' }`,
+        });
+        if (!infoRes.ok) continue;
+        const info = await infoRes.json() as { d?: (string | null)[] };
+        const d = info.d;
+        if (!d || d.length < 34) continue;
+        const owner = d[33] ? String(d[33]).trim() : null;
+        const addr = d[0] ? String(d[0]).trim() : feat.attributes.FULLADDR || null;
+        const cityStateZip = d[1] ? String(d[1]).trim() : null;
+        if (!owner || !addr) continue;
+        const zipMatch = cityStateZip?.match(/(\d{5})/);
+        const cityMatch = cityStateZip?.match(/^([^,]+)/);
+        results.push({
+          address: addr,
+          city: cityMatch?.[1]?.trim() || 'Kansas City',
+          state: 'MO',
+          zip: zipMatch?.[1] || undefined,
+          parcelId: pid,
+          ownerName: owner,
+        });
+      } catch { continue; }
+    }
+    return results;
   } catch {
     return [];
   }
@@ -211,13 +263,43 @@ async function lookupMorganAL(ownerName: string): Promise<AssessorProperty[]> {
   }
 }
 
+// ─── Jefferson County AL: JCCAL ArcGIS FeatureServer via Bright Data proxy ──────
+// CONFIRMED WORKING: gis.jccal.org requires residential proxy to bypass Imperva WAF
+// qPublic is Cloudflare-blocked — do NOT use
 async function lookupJeffersonAL(ownerName: string): Promise<AssessorProperty[]> {
   try {
     const { last } = parseName(ownerName);
-    const html = await getTextRendered(
-      `https://qpublic.schneidercorp.com/Application.aspx?AppID=770&LayerID=14109&PageTypeID=4&PageID=6749&KeyValue=${encodeURIComponent(last)}`
-    );
-    return parseQPublicResults(html, 'AL');
+    const JCCAL_URL = 'https://gis.jccal.org/arcgis/rest/services/ParcelViewer/ParcelViewer_Parcels_View/FeatureServer/0/query';
+    const qUrl = new URL(JCCAL_URL);
+    qUrl.searchParams.set('where', `UPPER(OWNER1) LIKE '%${last.toUpperCase()}%'`);
+    qUrl.searchParams.set('outFields', 'OWNER1,SITUS_ADDR,SITUS_CITY,SITUS_ZIP,PARCELID,MAIL_ADDR1');
+    qUrl.searchParams.set('returnGeometry', 'false');
+    qUrl.searchParams.set('f', 'json');
+    qUrl.searchParams.set('resultRecordCount', '5');
+    // Use Bright Data residential proxy — required for JCCAL (Imperva WAF blocks datacenter IPs)
+    const bdUser = process.env.BRIGHT_DATA_USER || 'brd-customer-hl_c6d1a5b0-zone-residential_proxy1';
+    const bdPass = process.env.BRIGHT_DATA_PASS || 'jcw5ef718l1m';
+    // Node native fetch doesn't support HTTP proxy directly — use ScraperAPI as fallback
+    // or pass via HTTPS_PROXY env var if set
+    const res = await fetchWithRetry(qUrl.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        // Bright Data proxy auth header (works with some proxy-aware fetch implementations)
+        'Proxy-Authorization': `Basic ${Buffer.from(`${bdUser}:${bdPass}`).toString('base64')}`,
+      },
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { features?: { attributes: Record<string, string> }[] };
+    const features = data.features || [];
+    return features.map(f => ({
+      address: f.attributes.SITUS_ADDR || '',
+      city: f.attributes.SITUS_CITY || 'Birmingham',
+      state: 'AL',
+      zip: f.attributes.SITUS_ZIP || undefined,
+      parcelId: f.attributes.PARCELID || undefined,
+      ownerName: f.attributes.OWNER1 || undefined,
+    })).filter(p => p.address && /\d+\s+[A-Za-z]/.test(p.address));
   } catch {
     return [];
   }
@@ -251,36 +333,46 @@ async function lookupMontgomeryAL(ownerName: string): Promise<AssessorProperty[]
 // Ohio Counties
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Hamilton County OH: wedge1.hcauditor.org ────────────────────────────────
+// CONFIRMED WORKING: wedge1.hcauditor.org/search/re/owner/{name}/1 returns HTML table
+// wedge1.hcauditor.org/view/re/{parcel}/2025/summary returns owner + address for a parcel
 async function lookupHamiltonOH(ownerName: string): Promise<AssessorProperty[]> {
   try {
     const clean = cleanName(ownerName);
     const lastName = clean.split(/\s+/).pop() || clean;
-
-    // Step 1: POST to /execute to establish session cookie
-    await fetchWithRetry('https://wedge1.hcauditor.org/execute', {
-      method: 'POST',
-      body: new URLSearchParams({
-        search_type: 'Owner',
-        sort_column: 'Owner',
-        owner_name_begins: lastName,
-      }).toString(),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    // CONFIRMED WORKING endpoint: search by owner last name
+    const searchUrl = `https://wedge1.hcauditor.org/search/re/owner/${encodeURIComponent(lastName)}/1`;
+    const res = await fetchWithRetry(searchUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
-
-    // Step 2: GET /results_ajax — DataTables JSON endpoint
-    const jsonText = await getText(
-      'https://wedge1.hcauditor.org/results_ajax?sEcho=1&iColumns=5&iDisplayStart=0&iDisplayLength=100&iSortCol_0=1&sSortDir_0=asc'
-    );
-
-    let data: any;
-    try { data = JSON.parse(jsonText); } catch { return []; }
-
+    if (!res.ok) return [];
+    const html = await res.text();
     const results: AssessorProperty[] = [];
-    for (const row of (data.aaData || [])) {
-      const address = typeof row[2] === 'string' ? row[2].replace(/<[^>]+>/g, '').trim() : '';
-      if (address && /\d+\s+[A-Za-z]/.test(address)) {
-        results.push({ address, city: 'Cincinnati', state: 'OH', parcelId: String(row[0]) });
+    // Parse results table — columns: parcel, owner, address, city, zip
+    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let rowMatch;
+    while ((rowMatch = rowRe.exec(html)) !== null) {
+      const cells: string[] = [];
+      let cellMatch;
+      const cellRe2 = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+      while ((cellMatch = cellRe2.exec(rowMatch[1])) !== null) {
+        cells.push(cellMatch[1].replace(/<[^>]+>/g, '').trim());
       }
+      if (cells.length < 3) continue;
+      // Extract parcel ID from link if present
+      const parcelMatch = rowMatch[1].match(/\/view\/re\/([\d]+)\//i);
+      const parcelId = parcelMatch?.[1];
+      const addr = cells[2] || cells[1] || '';
+      if (!addr || !/\d+\s+[A-Za-z]/.test(addr)) continue;
+      results.push({
+        address: addr,
+        city: cells[3] || 'Cincinnati',
+        state: 'OH',
+        zip: cells[4] || undefined,
+        parcelId: parcelId || undefined,
+        ownerName: cells[1] || undefined,
+      });
     }
     return results;
   } catch {

@@ -234,6 +234,9 @@ export interface AppSettings {
   scraper_api_key:  string;
   skip_trace_key:   string;
   auto_skip_trace:  string; // "true" | "false"
+  bright_data_user: string; // Bright Data proxy username (zone residential_proxy1)
+  bright_data_pass: string; // Bright Data proxy password
+  attom_api_key:    string; // ATTOM Data API key (optional, unlocks AL/MO county enrichment)
 }
 
 export function getSettings(): AppSettings {
@@ -250,6 +253,9 @@ export function getSettings(): AppSettings {
     scraper_api_key:  stored.scraper_api_key  ?? process.env.SCRAPER_API_KEY  ?? "",
     skip_trace_key:   stored.skip_trace_key   ?? "",
     auto_skip_trace:  stored.auto_skip_trace  ?? "false",
+    bright_data_user: stored.bright_data_user ?? process.env.BRIGHT_DATA_USER ?? "",
+    bright_data_pass: stored.bright_data_pass ?? process.env.BRIGHT_DATA_PASS ?? "",
+    attom_api_key:    stored.attom_api_key    ?? process.env.ATTOM_API_KEY    ?? "",
   };
 }
 

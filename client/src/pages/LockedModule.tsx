@@ -5,7 +5,7 @@ interface LockedModuleProps {
   title: string;
   description: string;
   features: string[];
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   accentColor: string;
 }
 

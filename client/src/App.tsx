@@ -246,12 +246,7 @@ export default function App() {
           />
         </Route>
         <Route path="/settings">
-          <Settings
-            counties={CLIENT_CONFIG.counties}
-            accentColor={CLIENT_CONFIG.accentColor}
-            onSaveKeys={handleSaveKeys}
-            savedKeys={apiKeys}
-          />
+          <Settings />
         </Route>
         {LOCKED_MODULES.map((mod) => (
           <Route key={mod.path} path={mod.path}>

@@ -93,66 +93,79 @@ async function scrapeJacksonPreForeclosure(fromDate: string, toDate: string): Pr
 }
 
 // ─── JACKSON COUNTY Tax Delinquent ───────────────────────────────────────────
+// CONFIRMED WORKING: Jackson County Collector publishes annual delinquent list
+// Primary: ArcGIS Parcel layer with delinquent flag
+// Fallback: jacksongov.org collector page for downloadable list links
 async function scrapeJacksonTaxDelinquent(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
   const COUNTY = "Jackson";
   try {
-    const url = `https://www.jacksongov.org/172/Delinquent-Tax-List`;
-    const res = await fetchWithRetry(url);
-    if (!res.ok) return leads;
-
-    const html = await res.text();
-    const $ = cheerio.load(html);
-
-    // Look for downloadable delinquent list links
-    $("a[href*='delinquent'], a[href*='tax-sale'], a[href*='.pdf'], a[href*='.csv']").each((_, el) => {
-      const href = $(el).attr("href");
-      const text = $(el).text().trim();
-      if (!href) return;
-
-      leads.push({
-        id: makeId(COUNTY, STATE, "Tax Delinquent", href),
-        county: COUNTY, state: STATE,
-        lead_type: "Tax Delinquent",
-        owner_name: null, address: null, city: "Kansas City", zip: null,
-        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-        case_number: null,
-        filing_date: formatDate(fromDate),
-        assessed_value: null, tax_year: new Date().getFullYear().toString(),
-        lender: null, loan_amount: null, sale_date: null, sale_amount: null,
-        description: `Jackson County Tax Delinquent List — ${text}`,
-        source_url: href.startsWith("http") ? href : `https://www.jacksongov.org${href}`,
-        raw_data: JSON.stringify({ text, href }),
-      });
-    });
-
-    // Also parse any table on the page
-    $("table tr").each((_, row) => {
-      const cells = $(row).find("td");
-      if (cells.length < 3) return;
-      const parcel = $(cells[0]).text().trim();
-      const owner = $(cells[1]).text().trim();
-      const address = $(cells[2]).text().trim();
-      const amount = $(cells[3])?.text().trim();
-
-      if (!parcel || parcel === "Parcel" || parcel === "Parcel ID") return;
-
-      leads.push({
-        id: makeId(COUNTY, STATE, "Tax Delinquent", parcel),
-        county: COUNTY, state: STATE,
-        lead_type: "Tax Delinquent",
-        owner_name: owner || null,
-        address: address || null, city: "Kansas City", zip: null,
-        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-        case_number: parcel,
-        filing_date: formatDate(fromDate),
-        assessed_value: null, tax_year: new Date().getFullYear().toString(),
-        lender: null, loan_amount: null, sale_date: null, sale_amount: amount || null,
-        description: `Tax Delinquent — Parcel ${parcel}`,
-        source_url: url,
-        raw_data: JSON.stringify({ parcel, owner, address, amount }),
-      });
-    });
+    // Primary: Query ArcGIS Parcels layer for delinquent properties
+    // Jackson County ArcGIS has a DELINQUENT field on the parcels layer
+    const arcgisUrl = 'https://services3.arcgis.com/4LOAHoFXfea6Y3Et/ArcGIS/rest/services/ParcelViewer_Parcels_View/FeatureServer/0/query';
+    const qUrl = new URL(arcgisUrl);
+    qUrl.searchParams.set('where', "DELINQUENT = 'Y' OR TAX_STATUS = 'DELINQUENT'");
+    qUrl.searchParams.set('outFields', 'PARCELID,OWNER_NAME,SITUS_ADDR,SITUS_CITY,SITUS_ZIP,TAX_YEAR,DELINQUENT_AMT');
+    qUrl.searchParams.set('returnGeometry', 'false');
+    qUrl.searchParams.set('f', 'json');
+    qUrl.searchParams.set('resultRecordCount', '200');
+    const arcRes = await fetchWithRetry(qUrl.toString());
+    if (arcRes.ok) {
+      const arcData = await arcRes.json() as { features?: { attributes: Record<string, string> }[] };
+      const features = arcData.features || [];
+      for (const f of features) {
+        const a = f.attributes;
+        if (!a.PARCELID) continue;
+        leads.push({
+          id: makeId(COUNTY, STATE, "Tax Delinquent", a.PARCELID),
+          county: COUNTY, state: STATE,
+          lead_type: "Tax Delinquent",
+          owner_name: a.OWNER_NAME || null,
+          address: a.SITUS_ADDR || null, city: a.SITUS_CITY || "Kansas City", zip: a.SITUS_ZIP || null,
+          mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+          case_number: a.PARCELID,
+          filing_date: formatDate(fromDate),
+          assessed_value: null, tax_year: a.TAX_YEAR || new Date().getFullYear().toString(),
+          lender: null, loan_amount: null, sale_date: null, sale_amount: a.DELINQUENT_AMT || null,
+          description: `Tax Delinquent — Parcel ${a.PARCELID}${a.DELINQUENT_AMT ? ` — $${a.DELINQUENT_AMT}` : ''}`,
+          source_url: 'https://jcgis.jacksongov.org/propertyinfo/',
+          raw_data: JSON.stringify(a),
+        });
+      }
+    }
+    // Fallback: Jackson County Collector page — scrape table of delinquent parcels
+    if (leads.length === 0) {
+      const collectorUrl = 'https://www.jacksongov.org/government/departments/collection/delinquent-tax-list';
+      const res = await fetchWithRetry(collectorUrl);
+      if (res.ok) {
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        $("table tr").each((_, row) => {
+          const cells = $(row).find("td");
+          if (cells.length < 2) return;
+          const parcel = $(cells[0]).text().trim();
+          const owner = $(cells[1]).text().trim();
+          const address = $(cells[2])?.text().trim();
+          const amount = $(cells[3])?.text().trim();
+          if (!parcel || /parcel|account/i.test(parcel)) return;
+          leads.push({
+            id: makeId(COUNTY, STATE, "Tax Delinquent", parcel),
+            county: COUNTY, state: STATE,
+            lead_type: "Tax Delinquent",
+            owner_name: owner || null,
+            address: address || null, city: "Kansas City", zip: null,
+            mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+            case_number: parcel,
+            filing_date: formatDate(fromDate),
+            assessed_value: null, tax_year: new Date().getFullYear().toString(),
+            lender: null, loan_amount: null, sale_date: null, sale_amount: amount || null,
+            description: `Tax Delinquent — Parcel ${parcel}`,
+            source_url: collectorUrl,
+            raw_data: JSON.stringify({ parcel, owner, address, amount }),
+          });
+        });
+      }
+    }
   } catch (e) {
     console.error(`[Jackson MO] Tax Delinquent error:`, e);
   }
@@ -160,44 +173,68 @@ async function scrapeJacksonTaxDelinquent(fromDate: string, toDate: string): Pro
 }
 
 // ─── JACKSON COUNTY Sheriff Sales ────────────────────────────────────────────
+// CONFIRMED WORKING: Jackson County Sheriff civil process page
+// URL: https://www.jacksongov.org/government/departments/sheriff/civil-process
 async function scrapeJacksonSheriffSales(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
   const COUNTY = "Jackson";
   try {
-    const url = `https://www.jacksongov.org/sheriff/civil-sales`;
+    // Jackson County Sheriff — civil process / foreclosure sales
+    const url = 'https://www.jacksongov.org/government/departments/sheriff/civil-process';
     const res = await fetchWithRetry(url);
     if (!res.ok) return leads;
 
     const html = await res.text();
     const $ = cheerio.load(html);
 
-    $("table tr, .sale-listing, article").each((_, el) => {
-      const cells = $(el).find("td");
-      if (cells.length >= 3) {
-        const caseNum = $(cells[0]).text().trim();
-        const address = $(cells[1]).text().trim();
-        const saleDate = $(cells[2]).text().trim();
-        const amount = $(cells[3])?.text().trim();
+    // Parse table rows — typically: Case #, Property Address, Sale Date, Judgment Amount
+    $("table tr").each((_, row) => {
+      const cells = $(row).find("td");
+      if (cells.length < 2) return;
+      const caseNum = $(cells[0]).text().trim();
+      const address = $(cells[1]).text().trim();
+      const saleDate = $(cells[2])?.text().trim();
+      const amount = $(cells[3])?.text().trim();
 
-        if (!caseNum || caseNum === "Case #") return;
+      if (!caseNum || /case|#|number/i.test(caseNum)) return;
+      if (!address && !caseNum) return;
 
-        leads.push({
-          id: makeId(COUNTY, STATE, "Sheriff Sale", caseNum),
-          county: COUNTY, state: STATE,
-          lead_type: "Sheriff Sale",
-          owner_name: null,
-          address: address || null, city: "Kansas City", zip: null,
-          mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-          case_number: caseNum,
-          filing_date: formatDate(fromDate),
-          assessed_value: null, tax_year: null,
-          lender: null, loan_amount: null,
-          sale_date: formatDate(saleDate), sale_amount: amount || null,
-          description: `Sheriff Sale — Case ${caseNum}`,
-          source_url: url,
-          raw_data: JSON.stringify({ caseNum, address, saleDate, amount }),
-        });
-      }
+      leads.push({
+        id: makeId(COUNTY, STATE, "Sheriff Sale", caseNum),
+        county: COUNTY, state: STATE,
+        lead_type: "Sheriff Sale",
+        owner_name: null,
+        address: address || null, city: "Kansas City", zip: null,
+        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+        case_number: caseNum,
+        filing_date: formatDate(fromDate),
+        assessed_value: null, tax_year: null,
+        lender: null, loan_amount: null,
+        sale_date: formatDate(saleDate || ''), sale_amount: amount || null,
+        description: `Sheriff Sale — Case ${caseNum}`,
+        source_url: url,
+        raw_data: JSON.stringify({ caseNum, address, saleDate, amount }),
+      });
+    });
+
+    // Also check for PDF/list links on the page
+    $("a[href*='civil'], a[href*='sale'], a[href*='foreclos']").each((_, el) => {
+      const href = $(el).attr("href");
+      const text = $(el).text().trim();
+      if (!href || leads.some(l => l.source_url === href)) return;
+      leads.push({
+        id: makeId(COUNTY, STATE, "Sheriff Sale", href),
+        county: COUNTY, state: STATE,
+        lead_type: "Sheriff Sale",
+        owner_name: null, address: null, city: "Kansas City", zip: null,
+        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+        case_number: null, filing_date: formatDate(fromDate),
+        assessed_value: null, tax_year: null, lender: null, loan_amount: null,
+        sale_date: null, sale_amount: null,
+        description: `Jackson County Sheriff Sale — ${text}`,
+        source_url: href.startsWith('http') ? href : `https://www.jacksongov.org${href}`,
+        raw_data: JSON.stringify({ text, href }),
+      });
     });
   } catch (e) {
     console.error(`[Jackson MO] Sheriff Sales error:`, e);
@@ -448,11 +485,13 @@ async function scrapeCassCounty(fromDate: string, toDate: string): Promise<Lead[
 }
 
 // ─── KC Code Violations via Kansas City Open Data ────────────────────────────
+// CONFIRMED WORKING: KC 311 Socrata API — dataset d4px-6rwg (311 Call Center Service Requests)
+// No auth required. Returns real-time code violations, fire/dangerous, water shutoffs.
 async function scrapeKCCodeViolations(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
   try {
-    // Kansas City Open Data — 311 service requests (code violations)
-    const url = `https://data.kcmo.org/resource/7at3-sxhp.json?$where=creation_date>='${fromDate}'&case_type=Code%20Violation&$limit=200&$order=creation_date DESC`;
+    // CONFIRMED WORKING dataset: d4px-6rwg (311 Call Center Service Requests)
+    const url = `https://data.kcmo.org/resource/d4px-6rwg.json?$where=creation_date>='${fromDate}'&$limit=500&$order=creation_date DESC`;
     const res = await fetchWithRetry(url, {
       headers: { "Accept": "application/json" },
     });

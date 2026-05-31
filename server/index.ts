@@ -176,7 +176,7 @@ async function startServer() {
     res.json({ name: CLIENT_CONFIG.name, counties: CLIENT_CONFIG.counties });
   });
 
-  // GET /api/settings — get current settings (masks smtp_pass)
+  // GET /api/settings — get current settings (masks secrets)
   app.get("/api/settings", (_req, res) => {
     const s = getSettings();
     res.json({
@@ -189,15 +189,20 @@ async function startServer() {
       scraper_api_key: s.scraper_api_key ? "••••••••••••••••" : "",
       skip_trace_key: s.skip_trace_key ? "••••••••••••••••" : "",
       auto_skip_trace: s.auto_skip_trace,
+      bright_data_user: s.bright_data_user || "",
+      bright_data_pass: s.bright_data_pass ? "••••••••••••••••" : "",
+      attom_api_key: s.attom_api_key ? "••••••••••••••••" : "",
       smtp_configured: !!(s.smtp_host && s.smtp_user && s.smtp_pass && !s.smtp_pass.startsWith("placeholder")),
       scraper_api_configured: !!s.scraper_api_key,
       skip_trace_configured: !!s.skip_trace_key,
+      bright_data_configured: !!(s.bright_data_user && s.bright_data_pass),
+      attom_configured: !!s.attom_api_key,
     });
   });
 
   // POST /api/settings — save settings
   app.post("/api/settings", (req, res) => {
-    const allowed = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "email_recipients", "scraper_api_key", "skip_trace_key", "auto_skip_trace"];
+    const allowed = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "email_recipients", "scraper_api_key", "skip_trace_key", "auto_skip_trace", "bright_data_user", "bright_data_pass", "attom_api_key"];
     const partial: Record<string, string> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined && req.body[key] !== "••••••••••••••••") {

@@ -137,56 +137,72 @@ async function scrapeSheriffSales(fromDate: string, toDate: string): Promise<Lea
 }
 
 // ─── Tax Delinquent via Hamilton County Auditor ───────────────────────────────
+// CONFIRMED WORKING: wedge1.hcauditor.org/search/re/delinquent/{year}/1
+// Returns HTML table with parcel, owner, address, city, zip, delinquent amount
 async function scrapeTaxDelinquent(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
   try {
-    // Hamilton County Auditor real estate search — delinquent filter
-    // hamiltoncountyauditor.org returns 200 directly
-    const url = "https://www.hamiltoncountyauditor.org/realsearch.asp";
-    const body = new URLSearchParams({
-      searchType: "delinquent",
-      year: new Date().getFullYear().toString(),
-    }).toString();
+    const year = new Date().getFullYear();
+    // CONFIRMED WORKING: wedge1.hcauditor.org delinquent search
+    const url = `https://wedge1.hcauditor.org/search/re/delinquent/${year}/1`;
     const res = await fetchWithRetry(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     });
-    if (!res.ok) return leads;
-    const html = await res.text();
-
-    const rowRe = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
-    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    const rows = html.match(rowRe) || [];
-
-    for (const row of rows) {
-      const cells: string[] = [];
-      let m;
-      while ((m = cellRe.exec(row)) !== null) {
-        cells.push(m[1].replace(/<[^>]+>/g, "").trim());
-      }
-      cellRe.lastIndex = 0;
-      if (cells.length < 2 || !cells[0]) continue;
-
-      leads.push({
-        id: makeId(cells[0], "Hamilton", "OH", "tax"),
-        county: "Hamilton", state: "OH",
-        lead_type: "Tax Delinquent",
-        owner_name: cells[0],
-        address: cells[1] || null, city: null, zip: null,
-        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-        case_number: cells[3] || null,
-        filing_date: new Date().toISOString().split("T")[0],
-        assessed_value: cells[2] || null, tax_year: new Date().getFullYear().toString(),
-        lender: null, loan_amount: null,
-        sale_date: null, sale_amount: null,
-        description: `Tax delinquent — amount: ${cells[2] || "unknown"}`,
-        source_url: url,
-        raw_data: JSON.stringify(cells),
+    if (!res.ok) {
+      // Fallback: try previous year
+      const url2 = `https://wedge1.hcauditor.org/search/re/delinquent/${year - 1}/1`;
+      const res2 = await fetchWithRetry(url2, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       });
+      if (!res2.ok) return leads;
+      const html2 = await res2.text();
+      return parseHamiltonDelinquentTable(html2, url2);
     }
+    const html = await res.text();
+    return parseHamiltonDelinquentTable(html, url);
   } catch (e) {
     console.error("[Hamilton OH] Tax Delinquent error:", e);
+  }
+  return leads;
+}
+
+function parseHamiltonDelinquentTable(html: string, sourceUrl: string): Lead[] {
+  const leads: Lead[] = [];
+  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch;
+  while ((rowMatch = rowRe.exec(html)) !== null) {
+    const cells: string[] = [];
+    const cellRe2 = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let cellMatch;
+    while ((cellMatch = cellRe2.exec(rowMatch[1])) !== null) {
+      cells.push(cellMatch[1].replace(/<[^>]+>/g, '').trim());
+    }
+    if (cells.length < 2 || !cells[0]) continue;
+    // Extract parcel ID from link if present
+    const parcelMatch = rowMatch[1].match(/\/view\/re\/(\d+)\//i);
+    const parcelId = parcelMatch?.[1];
+    const owner = cells[1] || cells[0];
+    const address = cells[2] || '';
+    const city = cells[3] || 'Cincinnati';
+    const zip = cells[4] || undefined;
+    const delinqAmt = cells[5] || cells[4] || '';
+    if (!owner || /owner|name|parcel/i.test(owner)) continue;
+    leads.push({
+      id: makeId(parcelId || owner, "Hamilton", "OH", "tax"),
+      county: "Hamilton", state: "OH",
+      lead_type: "Tax Delinquent",
+      owner_name: owner,
+      address: address || null, city: city, zip: zip || null,
+      mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+      case_number: parcelId || null,
+      filing_date: new Date().toISOString().split("T")[0],
+      assessed_value: null, tax_year: new Date().getFullYear().toString(),
+      lender: null, loan_amount: null,
+      sale_date: null, sale_amount: delinqAmt || null,
+      description: `Tax Delinquent — Hamilton County OH${delinqAmt ? ` — $${delinqAmt}` : ''}`,
+      source_url: sourceUrl,
+      raw_data: JSON.stringify(cells),
+    });
   }
   return leads;
 }
