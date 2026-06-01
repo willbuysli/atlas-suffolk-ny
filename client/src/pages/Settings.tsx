@@ -396,7 +396,7 @@ export default function Settings() {
             <p className="font-semibold text-white text-base mb-3">Daily Automated Flow</p>
             <div className="space-y-2">
               {[
-                { step: "1", label: "Scrape", desc: "Every day at 6:00 AM EST, Atlas automatically pulls new leads from all county sources — court systems, open data portals, PACER RSS, Craigslist, and assessor databases." },
+                { step: "1", label: "Scrape", desc: "Every day at 6:00 AM Eastern Time, Atlas automatically pulls new leads from all county sources — court systems, open data portals, PACER RSS, Craigslist, and assessor databases." },
                 { step: "2", label: "Enrich", desc: "Each lead is cross-referenced with the county assessor to get the owner's full name and property address. Name-based leads (probate, divorce, obituaries) are only saved if the person actually owns property in that county." },
                 { step: "3", label: "Deduplicate", desc: "Every lead gets a stable ID based on county + lead type + case/parcel number. Duplicate records are silently skipped — you'll never see the same lead twice." },
                 { step: "4", label: "Deliver", desc: "A CSV report of all new leads from that day's run is emailed to your configured recipients. Configure SMTP in Email Delivery below to enable this." },
@@ -452,6 +452,73 @@ export default function Settings() {
             </ol>
           </div>
 
+          {/* Connecting Your Own Manus */}
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-4">
+            <p className="font-semibold text-white text-base flex items-center gap-2">🤖 Connecting Your Own Manus to Atlas</p>
+            <p className="text-slate-400 text-sm">Atlas runs on your own Railway server and GitHub repo. To have your own Manus agent update it, you need to give it write access to both. Here's the exact setup — takes about 5 minutes.</p>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-blue-300 font-semibold text-sm mb-2">Step 1 — GitHub Personal Access Token (write access to your repo)</p>
+                <ol className="space-y-1.5 text-slate-400 text-xs list-decimal list-inside">
+                  <li>Go to <span className="text-blue-300 font-medium">github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)</span></li>
+                  <li>Click <strong className="text-white">Generate new token (classic)</strong></li>
+                  <li>Set a name (e.g. "Manus Atlas") and expiration to <strong className="text-white">No expiration</strong></li>
+                  <li>Under Scopes, check <strong className="text-white">repo</strong> (full control of private repositories) — this is the only scope needed</li>
+                  <li>Click Generate — copy the token immediately (starts with <code className="text-blue-300">ghp_</code>)</li>
+                  <li>Give Manus the token and say: <em className="text-slate-300">"This is my GitHub token for dealsnh/atlas-national-houses with repo scope"</em></li>
+                </ol>
+              </div>
+
+              <div>
+                <p className="text-blue-300 font-semibold text-sm mb-2">Step 2 — Railway API Token (deploy + env var access)</p>
+                <ol className="space-y-1.5 text-slate-400 text-xs list-decimal list-inside">
+                  <li>Go to <span className="text-blue-300 font-medium">railway.app → Account Settings → Tokens</span></li>
+                  <li>Click <strong className="text-white">Create Token</strong> — name it "Manus"</li>
+                  <li>Copy the token (it's shown once)</li>
+                  <li>Give Manus the token and your Railway project name so it can trigger redeploys and set env vars</li>
+                </ol>
+              </div>
+
+              <div>
+                <p className="text-blue-300 font-semibold text-sm mb-2">Step 3 — How to Start Every Manus Session</p>
+                <p className="text-slate-400 text-xs mb-2">Open a new Manus task and paste this at the start:</p>
+                <div className="bg-slate-900/70 rounded-lg p-3 text-xs text-slate-300 font-mono border border-slate-700/40">
+                  I have an Atlas lead scraper running on Railway (project: [your project name]). The code is at github.com/dealsnh/atlas-national-houses. My GitHub token is [ghp_...] and my Railway token is [your token]. I need you to [describe what you want].
+                </div>
+              </div>
+
+              <div>
+                <p className="text-blue-300 font-semibold text-sm mb-2">Step 4 — Cross-Reference & Spot Check After Changes</p>
+                <ol className="space-y-1.5 text-slate-400 text-xs list-decimal list-inside">
+                  <li>Ask Manus: <em className="text-slate-300">"Show me exactly what you changed and why before you push"</em> — review the diff</li>
+                  <li>After deployment (3–4 min), check the Atlas dashboard — run a scrape and look for the new lead type in the filter</li>
+                  <li>If a scraper returns 0 leads, tell Manus: <em className="text-slate-300">"The [lead type] scraper returned 0 results — check the live endpoint and fix the field names"</em></li>
+                  <li>Ask Manus to verify changes against the live county portal directly, not just assume the URL is correct</li>
+                </ol>
+              </div>
+
+              <div>
+                <p className="text-blue-300 font-semibold text-sm mb-2">Step 5 — Resolving Common Issues</p>
+                <div className="grid md:grid-cols-2 gap-2 text-xs">
+                  {[
+                    { issue: "Scraper returns 0 leads", fix: '"Check the [county] [lead type] scraper — the endpoint or field names may have changed. Test the URL directly and fix it."' },
+                    { issue: "Railway not deploying", fix: '"The latest GitHub push didn\'t trigger a Railway build. Check the Railway webhook and trigger a manual redeploy."' },
+                    { issue: "Duplicate leads appearing", fix: '"The dedup logic uses a stable ID in db.ts — check if the ID generation changed for [lead type]."' },
+                    { issue: "Enrichment returning null", fix: '"The assessor lookup for [county] is returning null — check the ArcGIS endpoint URL and response field names."' },
+                    { issue: "County portal blocked", fix: '"The [county] portal is blocking Railway\'s IP. Add ScraperAPI or Bright Data proxy routing for that scraper."' },
+                    { issue: "Wrong data in leads", fix: '"The [lead type] scraper is mapping the wrong fields. Show me a sample raw API response and fix the field mapping."' },
+                  ].map(item => (
+                    <div key={item.issue} className="bg-slate-900/40 rounded-lg p-2.5 border border-slate-700/30">
+                      <p className="text-orange-300 font-medium mb-1">{item.issue}</p>
+                      <p className="text-slate-500 italic">{item.fix}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Customization Examples */}
           <div>
             <p className="font-semibold text-white mb-2">What You Can Ask Manus to Do</p>
@@ -464,7 +531,7 @@ export default function Settings() {
                 { label: "Add CRM integration", example: '"Push new leads to my RESimpli account automatically"' },
                 { label: "Custom filtering", example: '"Only pull leads where assessed value is under $200k"' },
                 { label: "Add a new data source", example: '"Add FSBO leads from Zillow for Hamilton County"' },
-                { label: "Change enrichment", example: '"Add phone number lookup via BatchSkipTracing on import"' },
+                { label: "Change enrichment", example: '"Add phone number lookup via Easy Button Skip Trace on import"' },
               ].map(item => (
                 <div key={item.label} className="bg-slate-900/40 rounded-lg p-3 border border-slate-700/30">
                   <p className="text-slate-300 font-medium text-xs mb-1">{item.label}</p>
@@ -493,8 +560,8 @@ export default function Settings() {
                 <span className="text-slate-400">Optional fallback proxy for JS-rendered pages. Most sources work without it. Useful if certain county portals start blocking the Railway server IP.</span>
               </div>
               <div className="flex gap-3">
-                <span className="text-slate-300 font-semibold whitespace-nowrap">Skip Trace API (varies)</span>
-                <span className="text-slate-400">Optional. BatchSkipTracing, PropStream, or similar. Appends phone numbers and emails to leads automatically on import.</span>
+                <span className="text-slate-300 font-semibold whitespace-nowrap">Easy Button Skip Trace (varies)</span>
+                <span className="text-slate-400">Optional. Appends phone numbers and emails to leads automatically on import. Add your Easy Button Skip Trace API key in the API Keys section below.</span>
               </div>
             </div>
           </div>
@@ -670,8 +737,8 @@ export default function Settings() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-white">Skip Trace API</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Appends phone numbers and emails to your leads automatically</p>
+                <h3 className="font-medium text-white">Easy Button Skip Trace API</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Appends phone numbers and emails to your leads automatically via Easy Button Skip Trace</p>
               </div>
               <span className={`text-xs px-2 py-1 rounded-full border ${settings.skip_trace_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
                 {settings.skip_trace_configured ? "Configured" : "Not set — optional"}
@@ -681,8 +748,8 @@ export default function Settings() {
               label="Skip Trace API Key"
               value={form.skip_trace_key || ""}
               onChange={set("skip_trace_key")}
-              placeholder="BatchSkipTracing, PropStream, or similar"
-              hint="Compatible with BatchSkipTracing API. Ask Manus to add support for other providers."
+              placeholder="Your Easy Button Skip Trace API key"
+              hint="Get your API key at easybuttonskiptrace.com — paste it here to enable auto skip-tracing on new leads."
               masked
             />
             <label className="flex items-center gap-2 cursor-pointer">
