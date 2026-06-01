@@ -2,17 +2,16 @@
  * Settings.tsx — Atlas Settings & Configuration
  * Sections:
  * 1. How Atlas Works — architecture guide, Manus customization info
- * 2. Lead Source Matrix — live/possible/needs_attom/blocked per county
- * 3. API Keys — ScraperAPI, Bright Data, Skip Trace, ATTOM
+ * 2. Lead Source Matrix — live/possible/needs_attom/blocked per county + lead type
+ * 3. API Keys — Bright Data, ATTOM, Skip Trace, ScraperAPI
  * 4. Email Delivery — SMTP + recipient list
  */
-
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle, XCircle, AlertCircle, Clock,
   ChevronDown, ChevronRight, Save, Eye, EyeOff,
-  Mail, Key, Database, BookOpen, RefreshCw
+  Mail, Key, Database, BookOpen, RefreshCw, Zap, Info
 } from "lucide-react";
 
 interface Settings {
@@ -35,7 +34,7 @@ interface Settings {
   attom_configured: boolean;
 }
 
-type LeadStatus = "live" | "possible" | "needs_attom" | "blocked" | "na";
+type LeadStatus = "live" | "possible" | "needs_attom" | "needs_brightdata" | "blocked" | "na";
 
 interface LeadSource {
   type: string;
@@ -51,118 +50,171 @@ interface CountyMatrix {
 }
 
 const LEAD_MATRIX: CountyMatrix[] = [
+  // ── MISSOURI ──────────────────────────────────────────────────────────────
   {
     county: "Jackson", state: "MO",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "MO Western District PACER RSS", notes: "PACER RSS feed, no auth required" },
-      { type: "Tax Delinquent", status: "live", source: "Jackson County ArcGIS Parcels", notes: "ArcGIS FeatureServer, DELINQUENT field" },
-      { type: "Sheriff Sales", status: "live", source: "jacksongov.org civil-process", notes: "County sheriff civil process page" },
-      { type: "Code Violations", status: "live", source: "KC 311 Open Data (d4px-6rwg)", notes: "Socrata API, no auth required, 500 records/day" },
-      { type: "Fire Damage", status: "live", source: "KC 311 Open Data (fire type)", notes: "Same dataset, filtered by type" },
-      { type: "Water Shutoff", status: "live", source: "KC 311 Open Data (water type)", notes: "Same dataset, filtered by type" },
-      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "ecf.mowb.uscourts.gov, no auth required" },
-      { type: "Probate", status: "live", source: "MO PACER + Jackson County ArcGIS", notes: "Cross-referenced with parcel data" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "Jackson County Recorder + Case.net", notes: "recorder.jacksongov.org LP docs + courts.mo.gov Case.net LP cases" },
+      { type: "Tax Delinquent", status: "live", source: "Jackson County ArcGIS Parcels", notes: "ArcGIS FeatureServer, DELINQUENT='Y' field — no auth required" },
+      { type: "Sheriff Sales", status: "live", source: "jacksongov.org/civil-process", notes: "Jackson County Sheriff civil process page" },
+      { type: "Code Violations", status: "live", source: "KC 311 Open Data (d4px-6rwg)", notes: "Socrata API, no auth required — enriched with owner via assessor ArcGIS" },
+      { type: "Fire Damage", status: "live", source: "KC 311 Open Data (fire type)", notes: "Same dataset, filtered by fire/dangerous building type" },
+      { type: "Water Shutoff", status: "live", source: "KC 311 Open Data (water type)", notes: "Same dataset, filtered by water service type" },
+      { type: "Vacant / Abandoned", status: "live", source: "KC 311 Open Data (vacant type)", notes: "Vacant/abandoned property complaints via 311" },
+      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "ecf.mowb.uscourts.gov — no auth required" },
+      { type: "Probate", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type PR — enriched via Jackson County assessor ArcGIS" },
+      { type: "Divorce", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type D — only saved when respondent owns property in county" },
+      { type: "Obituaries", status: "live", source: "Legacy.com KC RSS", notes: "Estate lead proxy — enriched via assessor property lookup" },
       { type: "FSBO", status: "live", source: "Craigslist Kansas City", notes: "craigslist.org/search/reo, filtered keywords" },
-      { type: "Obituaries", status: "live", source: "KC Star / legacy.com", notes: "Estate lead proxy" },
     ]
   },
   {
     county: "Clay", state: "MO",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "MO Western District PACER RSS", notes: "Same feed as Jackson" },
-      { type: "Tax Delinquent", status: "possible", source: "Clay County Collector", notes: "claycountymo.gov — HTML scrape, may need updates" },
-      { type: "Sheriff Sales", status: "possible", source: "Clay County Sheriff", notes: "claycountysheriff.net — scrape" },
-      { type: "Code Violations", status: "live", source: "KC 311 Open Data", notes: "Liberty/Kearney addresses auto-assigned to Clay" },
-      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "Same feed as Jackson" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case.net LP cases for Clay County — court code 12" },
+      { type: "Tax Delinquent", status: "possible", source: "Clay County Collector", notes: "claycountymo.gov — HTML scrape, may need periodic updates if site changes" },
+      { type: "Sheriff Sales", status: "possible", source: "Clay County Sheriff", notes: "claycountysheriff.net — scrape; ask Manus to verify if URL changes" },
+      { type: "Code Violations", status: "live", source: "KC 311 Open Data", notes: "Liberty/Kearney/Gladstone addresses auto-assigned to Clay County" },
+      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "Same feed as Jackson — covers all MO Western District counties" },
+      { type: "Probate", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type PR — Clay County court code 12" },
+      { type: "Divorce", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type D — Clay County court code 12" },
+      { type: "Obituaries", status: "live", source: "Legacy.com KC RSS", notes: "Same KC metro feed — covers Clay County area" },
       { type: "FSBO", status: "live", source: "Craigslist Kansas City", notes: "Same feed as Jackson" },
     ]
   },
   {
     county: "Cass", state: "MO",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "MO Western District PACER RSS", notes: "Same feed as Jackson" },
-      { type: "Tax Delinquent", status: "possible", source: "Cass County Collector", notes: "casscounty.com — HTML scrape" },
-      { type: "Sheriff Sales", status: "possible", source: "Cass County Sheriff", notes: "casscountysheriff.net" },
-      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "Same feed" },
-      { type: "FSBO", status: "live", source: "Craigslist Kansas City", notes: "Same feed" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case.net LP cases for Cass County — court code 7" },
+      { type: "Tax Delinquent", status: "live", source: "Cass County Collector ArcGIS", notes: "casscounty.com — confirmed working HTML scrape + ArcGIS fallback" },
+      { type: "Sheriff Sales", status: "live", source: "Cass County Sheriff", notes: "casscountysheriff.net — scrape" },
+      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "Same feed as Jackson" },
+      { type: "Probate", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type PR — Cass County court code 7" },
+      { type: "Divorce", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type D — Cass County court code 7" },
+      { type: "Obituaries", status: "live", source: "Legacy.com KC RSS", notes: "KC metro feed covers Cass County area" },
+      { type: "FSBO", status: "live", source: "Craigslist Kansas City", notes: "Same feed as Jackson" },
     ]
   },
   {
+    county: "Platte", state: "MO",
+    sources: [
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case.net LP cases for Platte County — court code 25" },
+      { type: "Tax Delinquent", status: "possible", source: "Platte County Collector", notes: "plattecountymo.gov — HTML scrape; ask Manus to verify" },
+      { type: "Sheriff Sales", status: "live", source: "Platte County Sheriff", notes: "plattecountysheriff.org — civil process page" },
+      { type: "Bankruptcy", status: "live", source: "PACER Western District MO RSS", notes: "Same feed as Jackson" },
+      { type: "Probate", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type PR — Platte County court code 25" },
+      { type: "Divorce", status: "live", source: "MO Case.net (courts.mo.gov)", notes: "Case type D — Platte County court code 25" },
+      { type: "Obituaries", status: "live", source: "Legacy.com KC RSS", notes: "KC metro feed covers Platte County area" },
+      { type: "FSBO", status: "live", source: "Craigslist Kansas City", notes: "Same feed as Jackson" },
+    ]
+  },
+  // ── OHIO ──────────────────────────────────────────────────────────────────
+  {
+    county: "Hamilton", state: "OH",
+    sources: [
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "Hamilton County Clerk of Courts", notes: "courtclerk.org case search, caseType=F — confirmed working" },
+      { type: "Tax Delinquent", status: "live", source: "wedge1.hcauditor.org", notes: "CONFIRMED WORKING: /search/re/delinquent/{year}/1 — prior year fallback included" },
+      { type: "Sheriff Sales", status: "live", source: "Hamilton County RealAuction", notes: "hamilton.sheriffsaleauction.ohio.gov" },
+      { type: "Code Violations", status: "live", source: "Cincinnati Open Data (dxyd-3h4p)", notes: "Socrata API, no auth required — enriched with owner via auditor" },
+      { type: "Fire Damage", status: "live", source: "Cincinnati Open Data (rvmt-pkmq)", notes: "Fire incidents dataset, filtered by structure fire type" },
+      { type: "Vacant / Abandoned", status: "live", source: "Cincinnati Open Data blight registry", notes: "Cincinnati blight/vacant property registry — enriched with owner" },
+      { type: "Bankruptcy", status: "live", source: "PACER Southern + Northern District OH", notes: "ecf.ohsb.uscourts.gov + ecf.ohnb.uscourts.gov" },
+      { type: "Probate", status: "live", source: "Hamilton County Probate Court", notes: "probatect.org case search, estate type — enriched via auditor" },
+      { type: "Divorce", status: "live", source: "Hamilton County Clerk of Courts", notes: "courtclerk.org, case type D — only saved when respondent owns property" },
+      { type: "Obituaries", status: "live", source: "Legacy.com Cincinnati RSS", notes: "Estate lead proxy — enriched via auditor property lookup" },
+      { type: "FSBO", status: "live", source: "Craigslist Cincinnati", notes: "cincinnati.craigslist.org" },
+    ]
+  },
+  // ── ALABAMA ───────────────────────────────────────────────────────────────
+  {
     county: "Jefferson", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "AlaCourt public case search", notes: "v2.alacourt.com, caseType=CV, foreclosure filter" },
-      { type: "Tax Delinquent", status: "live", source: "JCCAL ArcGIS (Bright Data proxy)", notes: "gis.jccal.org — requires Bright Data residential proxy to bypass Imperva WAF" },
-      { type: "Sheriff Sales", status: "live", source: "Rubin Lublin + jeffcosheriff.net", notes: "rubinlublin.com covers all AL counties; county fallback for Jefferson" },
-      { type: "Code Violations", status: "live", source: "jeffcointouch.com code enforcement", notes: "Jefferson County code enforcement portal" },
-      { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov, covers Jefferson/Madison/Morgan/Shelby" },
-      { type: "Probate", status: "live", source: "AlaCourt + JCCAL enrichment", notes: "AlaCourt caseType=PR, enriched via JCCAL ArcGIS" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "v2.alacourt.com, caseType=CV with foreclosure filter" },
+      { type: "Tax Delinquent", status: "needs_brightdata", source: "JCCAL ArcGIS (Bright Data proxy)", notes: "gis.jccal.org — behind Imperva WAF. Add Bright Data credentials below to unlock. Falls back to limited public endpoint without it." },
+      { type: "Sheriff Sales", status: "live", source: "Rubin Lublin + jeffcosheriff.net", notes: "rubinlublin.com covers all AL counties; county page as fallback" },
+      { type: "Code Violations", status: "live", source: "jeffcointouch.com code enforcement", notes: "Jefferson County code enforcement portal — enriched with owner" },
+      { type: "Vacant / Abandoned", status: "live", source: "Birmingham Open Data", notes: "data.birminghamal.gov vacant/blight registry" },
+      { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov — covers Jefferson/Madison/Morgan/Shelby" },
+      { type: "Probate", status: "live", source: "AlaCourt caseType=PR + JCCAL enrichment", notes: "AlaCourt public search, enriched via JCCAL ArcGIS" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search — only saved when respondent owns property" },
+      { type: "Obituaries", status: "live", source: "al.com obituaries + Legacy.com", notes: "Estate lead proxy — enriched via JCCAL assessor lookup" },
       { type: "FSBO", status: "live", source: "Craigslist Birmingham", notes: "birmingham.craigslist.org" },
-      { type: "Obituaries", status: "live", source: "al.com obituaries", notes: "Estate lead proxy" },
     ]
   },
   {
     county: "Madison", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
-      { type: "Tax Delinquent", status: "live", source: "madisonproperty.countygovservices.com", notes: "Accessible without proxy — POST search" },
-      { type: "Sheriff Sales", status: "live", source: "Rubin Lublin + madisoncountyal.gov", notes: "Rubin Lublin primary, county fallback" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
+      { type: "Tax Delinquent", status: "live", source: "madisonproperty.countygovservices.com", notes: "Accessible without proxy — POST search, confirmed working" },
+      { type: "Sheriff Sales", status: "live", source: "Rubin Lublin + madisoncountyal.gov", notes: "Rubin Lublin primary, county page fallback" },
       { type: "Code Violations", status: "live", source: "Huntsville Open Data (data.huntsvilleal.gov)", notes: "Socrata API, no auth required" },
       { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov" },
       { type: "Probate", status: "live", source: "AlaCourt caseType=PR", notes: "AlaCourt public search" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search — only saved when respondent owns property" },
+      { type: "Obituaries", status: "live", source: "al.com obituaries + Legacy.com", notes: "Estate lead proxy — enriched via Madison County assessor" },
       { type: "FSBO", status: "live", source: "Craigslist Huntsville", notes: "huntsville.craigslist.org" },
     ]
   },
   {
     county: "Morgan", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "AlaCourt public case search", notes: "Same feed" },
-      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks ALL IPs. ATTOM Data API unlocks full enrichment (~$150/mo)" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
+      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks all IPs — no proxy bypass available. ATTOM Data API (~$150/mo) unlocks full address enrichment." },
       { type: "Sheriff Sales", status: "live", source: "Rubin Lublin", notes: "Statewide coverage" },
       { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov" },
+      { type: "Probate", status: "live", source: "AlaCourt caseType=PR", notes: "AlaCourt public search" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search" },
+      { type: "Obituaries", status: "live", source: "al.com obituaries + Legacy.com", notes: "Estate lead proxy" },
       { type: "FSBO", status: "live", source: "Craigslist Huntsville", notes: "Same feed as Madison" },
     ]
   },
   {
     county: "Montgomery", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "AlaCourt public case search", notes: "Same feed" },
-      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks ALL IPs. ATTOM Data API unlocks full enrichment (~$150/mo)" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
+      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks all IPs. ATTOM Data API (~$150/mo) unlocks full address enrichment." },
       { type: "Sheriff Sales", status: "live", source: "Rubin Lublin", notes: "Statewide coverage" },
-      { type: "Bankruptcy", status: "live", source: "PACER Southern District AL RSS", notes: "ecf.alsb.uscourts.gov, covers Montgomery/Autauga/Elmore" },
+      { type: "Bankruptcy", status: "live", source: "PACER Southern District AL RSS", notes: "ecf.alsb.uscourts.gov — covers Montgomery/Autauga/Elmore" },
+      { type: "Probate", status: "live", source: "AlaCourt caseType=PR", notes: "AlaCourt public search" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search" },
+      { type: "Obituaries", status: "live", source: "al.com obituaries + Legacy.com", notes: "Estate lead proxy" },
       { type: "FSBO", status: "live", source: "Craigslist Montgomery", notes: "montgomery.craigslist.org" },
     ]
   },
   {
     county: "Shelby", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "AlaCourt public case search", notes: "Same feed" },
-      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks ALL IPs. ATTOM Data API unlocks full enrichment (~$150/mo)" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
+      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks all IPs. ATTOM Data API (~$150/mo) unlocks full address enrichment." },
       { type: "Sheriff Sales", status: "live", source: "Rubin Lublin", notes: "Statewide coverage" },
       { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov" },
+      { type: "Probate", status: "live", source: "AlaCourt caseType=PR", notes: "AlaCourt public search" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search" },
+      { type: "Obituaries", status: "live", source: "al.com obituaries + Legacy.com", notes: "Estate lead proxy" },
       { type: "FSBO", status: "live", source: "Craigslist Birmingham", notes: "Same feed as Jefferson" },
     ]
   },
   {
-    county: "Hamilton", state: "OH",
+    county: "Limestone", state: "AL",
     sources: [
-      { type: "Pre-Foreclosure", status: "live", source: "Hamilton County Clerk of Courts", notes: "courtclerk.org case search, caseType=F" },
-      { type: "Tax Delinquent", status: "live", source: "wedge1.hcauditor.org", notes: "CONFIRMED WORKING: /search/re/delinquent/{year}/1" },
-      { type: "Sheriff Sales", status: "live", source: "Hamilton County RealAuction", notes: "hamilton.sheriffsaleauction.ohio.gov" },
-      { type: "Code Violations", status: "live", source: "Cincinnati Open Data (dxyd-3h4p)", notes: "Socrata API, no auth required" },
-      { type: "Fire Damage", status: "live", source: "Cincinnati Open Data (rvmt-pkmq)", notes: "Fire incidents filtered by structure fire type" },
-      { type: "Bankruptcy", status: "live", source: "PACER Southern + Northern District OH", notes: "ecf.ohsb.uscourts.gov + ecf.ohnb.uscourts.gov" },
-      { type: "Probate", status: "live", source: "Hamilton County Probate Court", notes: "probatect.org case search, estate type" },
-      { type: "FSBO", status: "live", source: "Craigslist Cincinnati", notes: "cincinnati.craigslist.org" },
+      { type: "Pre-Foreclosure / Lis Pendens", status: "live", source: "AlaCourt public case search", notes: "Same feed as Jefferson" },
+      { type: "Tax Delinquent", status: "needs_attom", source: "AL Revenue GIS (blocked)", notes: "gis.revenue.alabama.gov blocks all IPs. ATTOM Data API (~$150/mo) unlocks full address enrichment." },
+      { type: "Sheriff Sales", status: "live", source: "Rubin Lublin", notes: "Statewide coverage" },
+      { type: "Bankruptcy", status: "live", source: "PACER Northern District AL RSS", notes: "ecf.alnb.uscourts.gov" },
+      { type: "Probate", status: "live", source: "AlaCourt caseType=PR", notes: "AlaCourt public search" },
+      { type: "Divorce", status: "live", source: "AlaCourt caseType=DR", notes: "AlaCourt public search" },
+      { type: "FSBO", status: "live", source: "Craigslist Huntsville", notes: "Same feed as Madison" },
     ]
   },
 ];
 
 const STATUS_CONFIG: Record<LeadStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  live:        { label: "Live",         color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30", icon: <CheckCircle className="w-3 h-3" /> },
-  possible:    { label: "Possible",     color: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",   icon: <AlertCircle className="w-3 h-3" /> },
-  needs_attom: { label: "Needs ATTOM",  color: "bg-orange-500/20 text-orange-300 border-orange-500/30",   icon: <Key className="w-3 h-3" /> },
-  blocked:     { label: "Blocked",      color: "bg-red-500/20 text-red-300 border-red-500/30",             icon: <XCircle className="w-3 h-3" /> },
-  na:          { label: "N/A",          color: "bg-slate-500/20 text-slate-400 border-slate-500/30",       icon: <Clock className="w-3 h-3" /> },
+  live:             { label: "Live",              color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",  icon: <CheckCircle className="w-3 h-3" /> },
+  possible:         { label: "Possible",          color: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",    icon: <AlertCircle className="w-3 h-3" /> },
+  needs_attom:      { label: "Needs ATTOM",       color: "bg-orange-500/20 text-orange-300 border-orange-500/30",    icon: <Key className="w-3 h-3" /> },
+  needs_brightdata: { label: "Needs Bright Data", color: "bg-purple-500/20 text-purple-300 border-purple-500/30",    icon: <Zap className="w-3 h-3" /> },
+  blocked:          { label: "Blocked",           color: "bg-red-500/20 text-red-300 border-red-500/30",              icon: <XCircle className="w-3 h-3" /> },
+  na:               { label: "N/A",               color: "bg-slate-500/20 text-slate-400 border-slate-500/30",        icon: <Clock className="w-3 h-3" /> },
 };
 
 function StatusBadge({ status }: { status: LeadStatus }) {
@@ -262,10 +314,9 @@ export default function Settings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const MASK = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
       const payload: Record<string, string> = {};
       for (const [k, v] of Object.entries(form)) {
-        if (v !== undefined && v !== MASK) payload[k] = v;
+        if (v !== undefined) payload[k] = v;
       }
       const res = await fetch("/api/settings", {
         method: "POST",
@@ -304,108 +355,148 @@ export default function Settings() {
   if (!settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-6 h-6 text-blue-400 animate-spin" />
+        <RefreshCw className="w-6 h-6 animate-spin text-slate-400" />
       </div>
     );
   }
 
   const allSources = LEAD_MATRIX.flatMap(c => c.sources);
-  const liveSources = allSources.filter(s => s.status === "live").length;
-  const needsAttom = allSources.filter(s => s.status === "needs_attom").length;
-  const possibleSources = allSources.filter(s => s.status === "possible").length;
+  const liveCnt = allSources.filter(s => s.status === "live").length;
+  const needsActionCnt = allSources.filter(s => ["needs_attom", "needs_brightdata", "possible"].includes(s.status)).length;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Atlas Settings</h1>
-        <p className="text-slate-400 mt-1">Configure your lead sources, API keys, and daily delivery</p>
+        <h1 className="text-2xl font-bold text-white">Settings</h1>
+        <p className="text-slate-400 mt-1">Configure Atlas, view your lead sources, and manage API keys</p>
       </div>
 
-      {/* Status Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Live Sources", value: liveSources, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
-          { label: "Possible Sources", value: possibleSources, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
-          { label: "Needs ATTOM", value: needsAttom, color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
-          { label: "Counties Active", value: LEAD_MATRIX.length, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
-        ].map(item => (
-          <div key={item.label} className={`rounded-xl border p-4 ${item.bg}`}>
-            <div className={`text-2xl font-bold ${item.color}`}>{item.value}</div>
-            <div className="text-xs text-slate-400 mt-0.5">{item.label}</div>
-          </div>
-        ))}
+      {/* SUMMARY BANNER */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-emerald-300">{liveCnt}</div>
+          <div className="text-xs text-emerald-400 mt-1">Lead sources live</div>
+        </div>
+        <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-orange-300">{needsActionCnt}</div>
+          <div className="text-xs text-orange-400 mt-1">Sources need action</div>
+        </div>
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-blue-300">{LEAD_MATRIX.length}</div>
+          <div className="text-xs text-blue-400 mt-1">Counties active</div>
+        </div>
       </div>
 
       {/* HOW ATLAS WORKS */}
       <Section title="How Atlas Works" icon={<BookOpen className="w-5 h-5" />} defaultOpen={false}>
-        <div className="space-y-5 text-sm text-slate-300 leading-relaxed">
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-            <p className="text-blue-300 font-semibold mb-2">Daily Automated Flow</p>
-            <ol className="space-y-2 list-decimal list-inside text-slate-300">
-              <li><strong>Every day at 11:00 AM ET</strong>, Atlas automatically runs all scrapers for your configured counties.</li>
-              <li>Each scraper pulls from its source (court records, county portals, open data APIs, PACER RSS feeds).</li>
-              <li>New leads are cross-referenced against the <strong>assessor database</strong> to enrich with property address and owner info.</li>
-              <li>Duplicate leads (same property + lead type within 30 days) are automatically filtered out.</li>
-              <li>New leads are saved to your permanent database and a <strong>CSV is emailed</strong> to your configured recipients.</li>
-            </ol>
-          </div>
+        <div className="space-y-6 text-sm text-slate-300">
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-              <p className="font-semibold text-white mb-2">Data Sources</p>
-              <ul className="space-y-1.5 text-xs text-slate-400">
-                <li><span className="text-emerald-400">●</span> <strong>PACER RSS</strong> — Federal bankruptcy &amp; foreclosure filings (free, no auth)</li>
-                <li><span className="text-emerald-400">●</span> <strong>County Portals</strong> — Sheriff sales, probate courts, tax delinquent lists</li>
-                <li><span className="text-emerald-400">●</span> <strong>Open Data APIs</strong> — KC 311, Cincinnati, Huntsville (Socrata, free)</li>
-                <li><span className="text-emerald-400">●</span> <strong>ArcGIS FeatureServer</strong> — Jackson County MO parcels (free, public)</li>
-                <li><span className="text-yellow-400">●</span> <strong>Bright Data Proxy</strong> — Required for JCCAL (Jefferson AL)</li>
-                <li><span className="text-orange-400">●</span> <strong>ATTOM Data API</strong> — Optional, unlocks AL Revenue GIS counties</li>
-              </ul>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-              <p className="font-semibold text-white mb-2">Enrichment Pipeline</p>
-              <ul className="space-y-1.5 text-xs text-slate-400">
-                <li><span className="text-blue-400">1.</span> Lead found (name or case number only)</li>
-                <li><span className="text-blue-400">2.</span> Assessor lookup by owner name → property address</li>
-                <li><span className="text-blue-400">3.</span> Dedup check — skip if same lead seen recently</li>
-                <li><span className="text-blue-400">4.</span> Save to database with full record</li>
-                <li><span className="text-blue-400">5.</span> Optional: auto skip-trace via your API key</li>
-                <li><span className="text-blue-400">6.</span> Email CSV to recipients at end of run</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-            <p className="font-semibold text-white mb-2">Having Manus Update Your Atlas</p>
-            <p className="text-slate-400 text-xs mb-3">
-              Atlas runs on your own Railway server and is fully customizable. Your Manus agent has access to the full codebase and can make changes on your behalf:
-            </p>
-            <div className="grid md:grid-cols-2 gap-3 text-xs">
+          {/* Daily Flow */}
+          <div>
+            <p className="font-semibold text-white text-base mb-3">Daily Automated Flow</p>
+            <div className="space-y-2">
               {[
-                { label: "Add new counties", example: '"Add Cuyahoga County Ohio to my Atlas"' },
-                { label: "Add new lead types", example: '"Add divorce filings from AlaCourt for Jefferson County"' },
-                { label: "Fix a broken scraper", example: '"The Jackson County sheriff sales aren\'t pulling — fix it"' },
-                { label: "Change delivery schedule", example: '"Send my daily CSV at 7 AM instead of 11 AM"' },
-                { label: "Add CRM integration", example: '"Push new leads to my RESimpli account automatically"' },
-                { label: "Custom filtering", example: '"Only pull leads where assessed value is under $200k"' },
+                { step: "1", label: "Scrape", desc: "Every day at 6:00 AM EST, Atlas automatically pulls new leads from all county sources — court systems, open data portals, PACER RSS, Craigslist, and assessor databases." },
+                { step: "2", label: "Enrich", desc: "Each lead is cross-referenced with the county assessor to get the owner's full name and property address. Name-based leads (probate, divorce, obituaries) are only saved if the person actually owns property in that county." },
+                { step: "3", label: "Deduplicate", desc: "Every lead gets a stable ID based on county + lead type + case/parcel number. Duplicate records are silently skipped — you'll never see the same lead twice." },
+                { step: "4", label: "Deliver", desc: "A CSV report of all new leads from that day's run is emailed to your configured recipients. Configure SMTP in Email Delivery below to enable this." },
               ].map(item => (
-                <div key={item.label}>
-                  <p className="text-slate-300 font-medium mb-0.5">{item.label}:</p>
-                  <p className="text-slate-500 italic">{item.example}</p>
+                <div key={item.step} className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{item.step}</div>
+                  <div>
+                    <span className="font-medium text-white">{item.label}: </span>
+                    <span className="text-slate-400">{item.desc}</span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
+          {/* Architecture */}
+          <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+            <p className="font-semibold text-white mb-3">Architecture Map</p>
+            <div className="grid md:grid-cols-2 gap-3 text-xs">
+              {[
+                { label: "Server", value: "Node.js + Express on Railway (your account)", icon: "🖥️" },
+                { label: "Database", value: "SQLite on Railway persistent volume — all leads stored locally", icon: "🗄️" },
+                { label: "Scrapers", value: "server/scrapers/ — one file per state (missouri.ts, ohio.ts, alabama.ts)", icon: "🔍" },
+                { label: "Assessor Enrichment", value: "server/scrapers/assessor.ts — county ArcGIS + auditor lookups for owner name/address", icon: "🏠" },
+                { label: "Cron Scheduler", value: "node-cron in server/index.ts — 6 AM EST daily, restart-safe", icon: "⏰" },
+                { label: "Frontend", value: "React + Tailwind in client/src/ — served by the same Express server", icon: "🎨" },
+                { label: "GitHub Repo", value: "dealsnh/atlas-national-houses — Railway auto-deploys on every push to main", icon: "📦" },
+                { label: "Manus Access", value: "Your Manus agent has full access to the codebase and can make changes on your behalf", icon: "🤖" },
+              ].map(item => (
+                <div key={item.label} className="flex gap-2">
+                  <span className="text-base">{item.icon}</span>
+                  <div>
+                    <span className="font-medium text-slate-200">{item.label}: </span>
+                    <span className="text-slate-400">{item.value}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Adding Counties */}
+          <div>
+            <p className="font-semibold text-white mb-2">Adding New Counties</p>
+            <p className="text-slate-400 mb-3">
+              Atlas is designed to be extended. To add a new county, your Manus agent needs to:
+            </p>
+            <ol className="space-y-1.5 text-slate-400 list-decimal list-inside">
+              <li>Identify the county's public data sources (assessor ArcGIS, court system, open data portal)</li>
+              <li>Add scraper functions to the appropriate state file (or create a new one for a new state)</li>
+              <li>Add the county to the <code className="text-blue-300 bg-slate-900/60 px-1 rounded">CLIENT_COUNTIES</code> env var on Railway</li>
+              <li>Add the county to the assessor <code className="text-blue-300 bg-slate-900/60 px-1 rounded">LOOKUP_MAP</code> in assessor.ts for enrichment</li>
+              <li>Push to GitHub — Railway auto-deploys within 3–4 minutes</li>
+            </ol>
+          </div>
+
+          {/* Customization Examples */}
+          <div>
+            <p className="font-semibold text-white mb-2">What You Can Ask Manus to Do</p>
+            <div className="grid md:grid-cols-2 gap-2">
+              {[
+                { label: "Add a new county", example: '"Add Cuyahoga County Ohio to my Atlas"' },
+                { label: "Add a new lead type", example: '"Add divorce filings from AlaCourt for Jefferson County"' },
+                { label: "Fix a broken scraper", example: '"The Jackson County sheriff sales aren\'t pulling — fix it"' },
+                { label: "Change delivery time", example: '"Send my daily CSV at 7 AM instead of 6 AM"' },
+                { label: "Add CRM integration", example: '"Push new leads to my RESimpli account automatically"' },
+                { label: "Custom filtering", example: '"Only pull leads where assessed value is under $200k"' },
+                { label: "Add a new data source", example: '"Add FSBO leads from Zillow for Hamilton County"' },
+                { label: "Change enrichment", example: '"Add phone number lookup via BatchSkipTracing on import"' },
+              ].map(item => (
+                <div key={item.label} className="bg-slate-900/40 rounded-lg p-3 border border-slate-700/30">
+                  <p className="text-slate-300 font-medium text-xs mb-1">{item.label}</p>
+                  <p className="text-slate-500 italic text-xs">{item.example}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Paid Subscriptions */}
           <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
-            <p className="text-orange-300 font-semibold mb-1">What Requires Paid Subscriptions</p>
-            <ul className="space-y-1.5 text-xs text-slate-300">
-              <li><strong>Bright Data (~$15-50/mo)</strong> — Required for Jefferson County AL tax delinquent (JCCAL ArcGIS is behind Imperva WAF). Enter credentials below.</li>
-              <li><strong>ATTOM Data API (~$150/mo)</strong> — Unlocks full address enrichment for Morgan, Montgomery, Limestone, Shelby, Autauga, Elmore counties in AL. Without ATTOM, these counties get owner names only.</li>
-              <li><strong>ScraperAPI (~$29/mo)</strong> — Used as fallback proxy for JS-rendered pages. Many sources work without it.</li>
-              <li><strong>Skip Trace API</strong> — Optional. BatchSkipTracing, PropStream, or similar. Appends phone/email to leads.</li>
-            </ul>
+            <p className="text-orange-300 font-semibold mb-3 flex items-center gap-2">
+              <Info className="w-4 h-4" /> What Requires Paid Subscriptions
+            </p>
+            <div className="space-y-3 text-xs">
+              <div className="flex gap-3">
+                <span className="text-purple-300 font-semibold whitespace-nowrap">Bright Data (~$15–50/mo)</span>
+                <span className="text-slate-400">Required for Jefferson County AL tax delinquent. The JCCAL ArcGIS endpoint is behind Imperva WAF — Bright Data residential proxies are the only reliable bypass. Enter credentials in API Keys below.</span>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-orange-300 font-semibold whitespace-nowrap">ATTOM Data (~$150/mo)</span>
+                <span className="text-slate-400">Unlocks full address + owner enrichment for Morgan, Montgomery, Shelby, and Limestone AL — counties where gis.revenue.alabama.gov blocks all IPs. Without ATTOM, these counties still get pre-foreclosure, bankruptcy, probate, divorce, and sheriff sales but no tax delinquent data.</span>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-slate-300 font-semibold whitespace-nowrap">ScraperAPI (~$29/mo)</span>
+                <span className="text-slate-400">Optional fallback proxy for JS-rendered pages. Most sources work without it. Useful if certain county portals start blocking the Railway server IP.</span>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-slate-300 font-semibold whitespace-nowrap">Skip Trace API (varies)</span>
+                <span className="text-slate-400">Optional. BatchSkipTracing, PropStream, or similar. Appends phone numbers and emails to leads automatically on import.</span>
+              </div>
+            </div>
           </div>
         </div>
       </Section>
@@ -413,7 +504,8 @@ export default function Settings() {
       {/* LEAD SOURCE MATRIX */}
       <Section title="Lead Source Matrix" icon={<Database className="w-5 h-5" />}>
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-3 mb-4 text-xs">
+          {/* Legend */}
+          <div className="flex flex-wrap gap-2 mb-4 text-xs">
             {(Object.entries(STATUS_CONFIG) as [LeadStatus, typeof STATUS_CONFIG[LeadStatus]][])
               .filter(([k]) => k !== "na")
               .map(([key, cfg]) => (
@@ -423,9 +515,28 @@ export default function Settings() {
               ))}
           </div>
 
+          {/* Action callouts */}
+          {!settings.bright_data_configured && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg px-4 py-3 text-xs text-purple-300 flex items-start gap-2">
+              <Zap className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span><strong>Bright Data not configured:</strong> Jefferson County AL tax delinquent is running on a limited fallback. Add Bright Data credentials in API Keys below to unlock full enrichment.</span>
+            </div>
+          )}
+          {!settings.attom_configured && (
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg px-4 py-3 text-xs text-orange-300 flex items-start gap-2">
+              <Key className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span><strong>ATTOM not configured:</strong> Morgan, Montgomery, Shelby, and Limestone AL tax delinquent are blocked by gis.revenue.alabama.gov. Add an ATTOM API key below to unlock these counties (~$150/mo).</span>
+            </div>
+          )}
+
+          {/* County rows */}
           {LEAD_MATRIX.map(county => {
             const ckey = `${county.county}-${county.state}`;
             const isOpen = expandedCounty === ckey;
+            const liveCount = county.sources.filter(s => s.status === "live").length;
+            const needsCount = county.sources.filter(s => ["needs_attom", "needs_brightdata", "possible"].includes(s.status)).length;
+            const blockedCount = county.sources.filter(s => s.status === "blocked").length;
+
             return (
               <div key={ckey} className="border border-slate-700/50 rounded-lg overflow-hidden">
                 <button
@@ -434,11 +545,11 @@ export default function Settings() {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-medium text-white">{county.county} County, {county.state}</span>
-                    <span className="text-xs text-slate-500">
-                      {county.sources.filter(s => s.status === "live").length} live
-                      {county.sources.filter(s => s.status === "needs_attom").length > 0 &&
-                        ` · ${county.sources.filter(s => s.status === "needs_attom").length} needs ATTOM`}
-                    </span>
+                    <div className="flex gap-2 text-xs">
+                      <span className="text-emerald-400">{liveCount} live</span>
+                      {needsCount > 0 && <span className="text-orange-400">{needsCount} needs action</span>}
+                      {blockedCount > 0 && <span className="text-red-400">{blockedCount} blocked</span>}
+                    </div>
                   </div>
                   {isOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
                 </button>
@@ -456,8 +567,8 @@ export default function Settings() {
                       <tbody>
                         {county.sources.map((src, i) => (
                           <tr key={i} className="border-b border-slate-700/30 last:border-0 hover:bg-slate-700/10">
-                            <td className="px-4 py-2.5 text-white font-medium">{src.type}</td>
-                            <td className="px-4 py-2.5"><StatusBadge status={src.status} /></td>
+                            <td className="px-4 py-2.5 text-white font-medium whitespace-nowrap">{src.type}</td>
+                            <td className="px-4 py-2.5 whitespace-nowrap"><StatusBadge status={src.status} /></td>
                             <td className="px-4 py-2.5 text-slate-300 text-xs">{src.source}</td>
                             <td className="px-4 py-2.5 text-slate-500 text-xs">{src.notes}</td>
                           </tr>
@@ -473,60 +584,35 @@ export default function Settings() {
       </Section>
 
       {/* API KEYS */}
-      <Section title="API Keys & Integrations" icon={<Key className="w-5 h-5" />}>
+      <Section title="API Keys" icon={<Key className="w-5 h-5" />}>
         <div className="space-y-6">
-
-          {/* ScraperAPI */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-white">ScraperAPI</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Used as fallback proxy for JS-rendered pages. Many sources work without it.</p>
-              </div>
-              <span className={`text-xs px-2 py-1 rounded-full border ${settings.scraper_api_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
-                {settings.scraper_api_configured ? "Configured" : "Not set"}
-              </span>
-            </div>
-            <InputField
-              label="ScraperAPI Key"
-              value={form.scraper_api_key || ""}
-              onChange={set("scraper_api_key")}
-              placeholder="Enter your ScraperAPI key"
-              hint="Get a key at scraperapi.com — free tier includes 1,000 requests/mo"
-              masked
-            />
-          </div>
-
-          <hr className="border-slate-700/50" />
 
           {/* Bright Data */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-white">Bright Data Residential Proxy</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Required for Jefferson County AL (JCCAL ArcGIS is behind Imperva WAF)</p>
+                <h3 className="font-medium text-white flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-purple-400" /> Bright Data Proxy
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Required for Jefferson County AL tax delinquent (JCCAL ArcGIS is behind Imperva WAF)</p>
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full border ${settings.bright_data_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-orange-500/20 text-orange-300 border-orange-500/30"}`}>
-                {settings.bright_data_configured ? "Configured" : "Needed for Jefferson AL"}
+              <span className={`text-xs px-2 py-1 rounded-full border ${settings.bright_data_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-purple-500/20 text-purple-300 border-purple-500/30"}`}>
+                {settings.bright_data_configured ? "Configured" : "Not set"}
               </span>
-            </div>
-            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 text-xs text-orange-200">
-              <strong>Why this is needed:</strong> Jefferson County AL's GIS portal (gis.jccal.org) uses Imperva WAF which blocks all datacenter and VPN IPs. A residential proxy is required. Without this, Jefferson County tax delinquent enrichment returns empty results.
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               <InputField
                 label="Bright Data Username"
                 value={form.bright_data_user || ""}
                 onChange={set("bright_data_user")}
-                placeholder="brd-customer-hl_xxxxx-zone-residential_proxy1"
-                hint="Found in your Bright Data dashboard under Zone credentials"
+                placeholder="brd-customer-xxxxxx-zone-xxxxx"
+                hint="From Bright Data dashboard → Proxies → Residential → Access parameters"
               />
               <InputField
                 label="Bright Data Password"
                 value={form.bright_data_pass || ""}
                 onChange={set("bright_data_pass")}
-                placeholder="Enter your zone password"
-                hint="Zone password from your Bright Data residential proxy zone"
+                placeholder="Your zone password"
                 masked
               />
             </div>
@@ -538,26 +624,42 @@ export default function Settings() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-white">
-                  ATTOM Data API
-                  <span className="text-xs text-slate-500 font-normal ml-2">(Optional)</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Unlocks full address enrichment for AL Revenue GIS counties (Morgan, Montgomery, Limestone, Shelby, Autauga, Elmore)</p>
+                <h3 className="font-medium text-white">ATTOM Data API</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Unlocks tax delinquent for Morgan, Montgomery, Shelby, Limestone AL (~$150/mo at attomdata.com)</p>
               </div>
               <span className={`text-xs px-2 py-1 rounded-full border ${settings.attom_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
-                {settings.attom_configured ? "Configured" : "Optional"}
+                {settings.attom_configured ? "Configured" : "Not set"}
               </span>
-            </div>
-            <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-3 text-xs text-slate-400">
-              <strong className="text-slate-300">Without ATTOM:</strong> These 6 AL counties return owner names from the AL DOR transcript, but no property addresses (AL Revenue GIS blocks all IPs including residential proxies).<br />
-              <strong className="text-slate-300">With ATTOM (~$150/mo):</strong> Full property address + owner enrichment for all 6 counties. Ask Manus to wire up the ATTOM integration once you have a key.
             </div>
             <InputField
               label="ATTOM API Key"
               value={form.attom_api_key || ""}
               onChange={set("attom_api_key")}
               placeholder="Enter your ATTOM Data API key"
-              hint="Get a key at attomdata.com — property data API for address enrichment"
+              hint="Once added, ask Manus to wire up the ATTOM integration for the blocked AL counties"
+              masked
+            />
+          </div>
+
+          <hr className="border-slate-700/50" />
+
+          {/* ScraperAPI */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-medium text-white">ScraperAPI</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Optional fallback proxy for JS-rendered pages (~$29/mo at scraperapi.com)</p>
+              </div>
+              <span className={`text-xs px-2 py-1 rounded-full border ${settings.scraper_api_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
+                {settings.scraper_api_configured ? "Configured" : "Not set — optional"}
+              </span>
+            </div>
+            <InputField
+              label="ScraperAPI Key"
+              value={form.scraper_api_key || ""}
+              onChange={set("scraper_api_key")}
+              placeholder="Enter your ScraperAPI key"
+              hint="Used as fallback when county portals block the Railway server IP"
               masked
             />
           </div>
@@ -572,7 +674,7 @@ export default function Settings() {
                 <p className="text-xs text-slate-500 mt-0.5">Appends phone numbers and emails to your leads automatically</p>
               </div>
               <span className={`text-xs px-2 py-1 rounded-full border ${settings.skip_trace_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
-                {settings.skip_trace_configured ? "Configured" : "Not set"}
+                {settings.skip_trace_configured ? "Configured" : "Not set — optional"}
               </span>
             </div>
             <InputField
@@ -600,7 +702,7 @@ export default function Settings() {
       <Section title="Email Delivery" icon={<Mail className="w-5 h-5" />}>
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-slate-400">Daily CSV reports are emailed after each scrape run</p>
+            <p className="text-sm text-slate-400">Daily CSV reports are emailed after each 6 AM scrape run</p>
             <span className={`text-xs px-2 py-1 rounded-full border ${settings.smtp_configured ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-slate-700/50 text-slate-400 border-slate-600/30"}`}>
               {settings.smtp_configured ? "SMTP Configured" : "Not configured"}
             </span>
