@@ -1067,7 +1067,8 @@ export async function scrapeBankruptcy(fromDate: string, toDate: string): Promis
       const desc  = (item.match(/<description><!\[CDATA\[(.+?)\]\]><\/description>/) || item.match(/<description>(.+?)<\/description>/))?.[1]?.trim() || "";
       const pubDate = (item.match(/<pubDate>(.+?)<\/pubDate>/))?.[1]?.trim() || "";
       const caseNum = (title.match(/([0-9]{2}-[0-9]{5})/)?.[1]) || title;
-      const ownerFromTitle = title.replace(/^[0-9]{2}-[0-9]{5}(-[0-9]+)?\s*/, "").trim();
+      // Strip full case prefix including chapter suffix: e.g. "26-40368-btf13 " or "26-30205-7 "
+      const ownerFromTitle = title.replace(/^[0-9]{2}-[0-9]{5}(-[a-zA-Z0-9]+)?\s*/, "").trim();
       const caseName = ownerFromTitle || desc.replace(/<[^>]+>/g, "").replace(/&[a-z0-9#]+;/g, "").trim();
       bkItems.push({ title, link, pubDate, caseNum, caseName });
     }
