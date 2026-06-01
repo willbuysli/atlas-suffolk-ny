@@ -217,8 +217,25 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
 
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  // Use stats.byType for the full list of lead types across all records (not just current page)
-  const allTypes = stats ? stats.byType.map(t => t.lead_type).sort() : Array.from(new Set(leads.map(l => l.lead_type))).sort();
+  // Full hardcoded list so all lead types are always available as filter options,
+  // regardless of what has been scraped so far. Merge with any DB types not in this list.
+  const KNOWN_TYPES = [
+    "Bankruptcy",
+    "Code Violation",
+    "Divorce",
+    "Fire Damage",
+    "FSBO",
+    "Lis Pendens",
+    "Obituary",
+    "Pre-Foreclosure",
+    "Probate",
+    "Sheriff Sale",
+    "Tax Delinquent",
+    "Vacant",
+    "Water Shutoff",
+  ];
+  const dbTypes = stats ? stats.byType.map(t => t.lead_type) : leads.map(l => l.lead_type);
+  const allTypes = Array.from(new Set([...KNOWN_TYPES, ...dbTypes])).sort();
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

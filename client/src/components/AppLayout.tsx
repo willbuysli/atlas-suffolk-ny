@@ -60,7 +60,7 @@ export default function AppLayout({ children, companyName, userEmail, accentColo
       {/* Nav */}
       <nav className="flex-1 px-3 py-5 space-y-0.5 overflow-y-auto">
         <div className="text-white/25 text-[10px] font-bold uppercase tracking-[0.18em] px-3 mb-3">
-          Modules
+          Active Modules
         </div>
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
