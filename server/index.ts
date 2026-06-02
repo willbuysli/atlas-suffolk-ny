@@ -3,7 +3,7 @@ import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import cron from "node-cron";
-import { db, upsertLead, getLeads, updateLeadStatus, updateLeadSkipTrace, getStats, logScrapeRun, finishScrapeRun, getSettings, saveSettings } from "./db.js";
+import { db, upsertLead, getLeads, updateLeadStatus, updateLeadSkipTrace, getStats, logScrapeRun, finishScrapeRun, getSettings, saveSettings, getKV, setKV } from "./db.js";
 import { runAllScrapers, getDateRange } from "./scrapers/index.js";
 import { sendDailyReport } from "./email.js";
 
@@ -46,7 +46,8 @@ function leadsToCSV(leads: Record<string, string | null>[]): string {
 // ─── SCRAPE JOB STATE ─────────────────────────────────────────────────────────
 let scrapeInProgress = false;
 let lastScrapeLog: string[] = [];
-let lastScrapeTime: string | null = null;
+// Persist lastScrapeTime to DB so it survives Railway redeploys
+let lastScrapeTime: string | null = getKV("last_scrape_time");
 
 async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
   if (scrapeInProgress) throw new Error("Scrape already in progress");
@@ -74,6 +75,7 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
     if (errors.length) lastScrapeLog.push(`⚠ ${errors.length} errors: ${errors.join("; ")}`);
     lastScrapeLog.push(`✓ Done: ${totalNew} new leads saved`);
     lastScrapeTime = new Date().toISOString();
+    setKV("last_scrape_time", lastScrapeTime);
     console.log(`[Scrape] Complete: ${totalNew} new leads`);
   } finally {
     scrapeInProgress = false;

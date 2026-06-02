@@ -286,3 +286,14 @@ export function saveSettings(partial: Partial<AppSettings>): void {
   });
   saveMany(Object.entries(partial) as [string, string][]);
 }
+
+// ─── KEY-VALUE STORE (for persisting runtime state across redeploys) ───────────
+export function getKV(key: string): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(`__kv_${key}`) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setKV(key: string, value: string): void {
+  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(`__kv_${key}`, value);
+}

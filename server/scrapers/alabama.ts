@@ -438,38 +438,8 @@ export async function scrapeBankruptcy(fromDate: string, toDate: string): Promis
 export async function scrapeCodeViolations(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
 
-  // Huntsville Open Data — code enforcement complaints
-  try {
-    const url = `https://data.huntsvilleal.gov/resource/code-violations.json?$where=date_opened>='${fromDate}'&$limit=200&$order=date_opened DESC`;
-    const res = await fetchWithRetry(url, { headers: { Accept: "application/json" } });
-    if (res.ok) {
-      const data = await res.json() as Record<string, string>[];
-      for (const item of data) {
-        const address = item.address || item.location || "";
-        const type = item.violation_type || item.complaint_type || "Code Violation";
-        const date = item.date_opened || fromDate;
-        const caseNum = item.case_number || item.id || "";
-        if (!address && !caseNum) continue;
-        leads.push({
-          id: makeId("CV", caseNum || address, "Madison", "AL"),
-          county: "Madison", state: "AL",
-          lead_type: "Code Violation",
-          owner_name: null,
-          address: address || null, city: "Huntsville", zip: item.zip || null,
-          mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-          case_number: caseNum || null,
-          filing_date: formatDate(date),
-          assessed_value: null, tax_year: null,
-          lender: null, loan_amount: null, sale_date: null, sale_amount: null,
-          description: `Code Violation — ${type} — ${address}`,
-          source_url: "https://data.huntsvilleal.gov/",
-          raw_data: JSON.stringify(item),
-        });
-      }
-    }
-  } catch (e) {
-    console.error("[AL] Huntsville Code Violations error:", e);
-  }
+  // NOTE: data.huntsvilleal.gov domain no longer resolves — removed to prevent DNS errors.
+  // Huntsville code violations are not available via public API at this time.
 
   // Jefferson County (Birmingham) code enforcement
   try {

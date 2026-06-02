@@ -62,7 +62,9 @@ const TYPE_COLORS: Record<string, string> = {
   "Divorce": "bg-rose-500/15 text-rose-400 border border-rose-500/20",
   "Fire Damage": "bg-amber-500/15 text-amber-400 border border-amber-500/20",
   "Water Shutoff": "bg-sky-500/15 text-sky-400 border border-sky-500/20",
+  "Vacant/Abandoned": "bg-lime-500/15 text-lime-400 border border-lime-500/20",
   "Vacant": "bg-lime-500/15 text-lime-400 border border-lime-500/20",
+  "Bankruptcy": "bg-purple-500/15 text-purple-400 border border-purple-500/20",
 };
 
 interface CountyScraperProps {
@@ -232,7 +234,7 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
     "Probate",
     "Sheriff Sale",
     "Tax Delinquent",
-    "Vacant",
+    "Vacant/Abandoned",
     "Water Shutoff",
   ];
   const dbTypes = stats ? stats.byType.map(t => t.lead_type) : leads.map(l => l.lead_type);
