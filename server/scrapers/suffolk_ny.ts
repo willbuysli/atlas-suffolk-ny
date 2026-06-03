@@ -563,42 +563,99 @@ async function scrapeObituaries(fromDate: string, toDate: string): Promise<Lead[
 }
 
 // ─── 11. Fire Damage ─────────────────────────────────────────────────────────
-// NY State Office of Fire Prevention & Control — fire incident data
+// Source: Newsday fire reports (Legacy.com/Newsday) + Suffolk County permit system
+// NOTE: NY State OFPC dataset 7kqe-6ixf was retired. Suffolk County GIS requires
+// Bright Data proxy (works from Railway, blocked in sandbox). Newsday is the
+// most reliable public source for recent structure fire addresses in Suffolk County.
 async function scrapeFireDamage(fromDate: string, toDate: string): Promise<Lead[]> {
   const leads: Lead[] = [];
   try {
-    // NY State fire incident data via Socrata open data
-    const url = `https://data.ny.gov/resource/7kqe-6ixf.json?$where=incident_date>='${fromDate}' AND county='SUFFOLK'&$limit=200`;
-    const res = await fetchWithRetry(url);
+    // Primary: Newsday fire news search via Google News RSS (no auth required)
+    const query = encodeURIComponent("Suffolk County house fire site:newsday.com");
+    const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+    const res = await fetchWithRetry(rssUrl);
     if (!res.ok) return leads;
-    const data = (await res.json()) as Record<string, string>[];
+    const xml = await res.text();
+    const $ = cheerio.load(xml, { xmlMode: true });
 
-    for (const row of data) {
-      const id = row.incident_number || row.id;
-      if (!id) continue;
-      const isStructure =
-        /structure|residential|dwelling|house|apartment/i.test(
-          row.incident_type_desc || row.property_use_desc || ""
-        );
-      if (!isStructure) continue;
+    $('item').each((_, el) => {
+      // Google News RSS uses plain text titles (not CDATA)
+      const title = $(el).children('title').text().trim();
+      const link = $(el).children('link').text().trim() || $(el).children('guid').text().trim();
+      const pubDate = $(el).children('pubDate').text().trim();
+      const description = $(el).children('description').text().trim();
 
+      if (!title) return;
+
+      // Include items that mention a residential fire in Suffolk County
+      const isStructureFire = /house fire|home fire|structure fire|fire damage|blaze|dwelling fire|fire damages|sets.*house.*fire|fire.*house/i.test(
+        title + ' ' + description
+      );
+      if (!isStructureFire) return;
+
+      // Try to extract address from title/description
+      const addrMatch = (title + ' ' + description).match(
+        /(\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+(?:St|Ave|Rd|Blvd|Dr|Ln|Way|Ct|Pl|Ter))\.?)/i
+      );
+      const address = addrMatch ? addrMatch[1] : null;
+
+      // Extract town/city from title
+      const cityMatch = (title + ' ' + description).match(
+        /(?:in|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+(?:NY|Long Island|Suffolk)/i
+      );
+      const city = cityMatch ? cityMatch[1] : COUNTY_SEAT;
+
+      const id = link || `${pubDate}-${title.slice(0, 30)}`;
       leads.push({
         id: makeId(COUNTY, STATE, "Fire Damage", id),
         county: COUNTY, state: STATE,
         lead_type: "Fire Damage",
         owner_name: null,
-        address: row.address || null,
-        city: row.city || COUNTY_SEAT,
-        zip: row.zip || null,
+        address,
+        city,
+        zip: null,
         mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
-        case_number: id,
-        filing_date: formatDate(row.incident_date || fromDate),
+        case_number: null,
+        filing_date: pubDate ? formatDate(pubDate) : formatDate(fromDate),
         assessed_value: null, tax_year: null,
         lender: null, loan_amount: null, sale_date: null, sale_amount: null,
-        description: `Fire Damage — ${row.incident_type_desc || "Structure fire"} at ${row.address || "unknown address"}`,
-        source_url: "https://data.ny.gov/Public-Safety/NYS-Fire-Incident-Reporting-System/7kqe-6ixf",
-        raw_data: JSON.stringify(row),
+        description: `Fire Damage — ${title}`,
+        source_url: link || "https://www.newsday.com",
+        raw_data: JSON.stringify({ title, link, pubDate, description }),
       });
+    });
+
+    // Secondary: Suffolk County Open Data — building permits for fire repair
+    // (requires Bright Data proxy from Railway env; silently skips if proxy unavailable)
+    if (process.env.BRIGHT_DATA_USER && process.env.BRIGHT_DATA_PASS) {
+      const permitUrl =
+        "https://data.suffolkcountyny.gov/resource/fire-permits.json" +
+        `?$where=permit_type LIKE '%FIRE%' AND issued_date>='${fromDate}'&$limit=100`;
+      const permitRes = await fetchWithRetry(permitUrl);
+      if (permitRes.ok) {
+        const permits = (await permitRes.json()) as Record<string, string>[];
+        for (const p of permits) {
+          const id = p.permit_number || p.id;
+          if (!id) continue;
+          leads.push({
+            id: makeId(COUNTY, STATE, "Fire Damage", `permit-${id}`),
+            county: COUNTY, state: STATE,
+            lead_type: "Fire Damage",
+            owner_name: p.owner_name || null,
+            address: p.address || null,
+            city: p.city || COUNTY_SEAT,
+            zip: p.zip || null,
+            mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+            case_number: id,
+            filing_date: formatDate(p.issued_date || fromDate),
+            assessed_value: null, tax_year: null,
+            lender: null, loan_amount: null, sale_date: null, sale_amount: null,
+            description: `Fire Repair Permit — ${p.description || p.permit_type || "Fire damage repair"}`,
+            source_url: "https://data.suffolkcountyny.gov",
+            raw_data: JSON.stringify(p),
+          });
+        }
+      }
     }
   } catch (e) {
     console.error(`[${COUNTY} NY] Fire Damage error:`, e);
@@ -666,9 +723,8 @@ async function enrichLeads(leads: Lead[]): Promise<Lead[]> {
       batch.map(async (lead) => {
         try {
           if (lead.address && (!lead.owner_name || !lead.mailing_address)) {
-            const props = await lookupByAddress(lead.address, COUNTY, STATE);
-            if (props.length > 0) {
-              const p = props[0];
+            const p = await lookupByAddress(lead.address, COUNTY, STATE);
+            if (p) {
               if (!lead.owner_name) lead.owner_name = p.ownerName || null;
               if (!lead.mailing_address) {
                 lead.mailing_address = p.mailingAddress || null;
@@ -678,7 +734,7 @@ async function enrichLeads(leads: Lead[]): Promise<Lead[]> {
               }
             }
           } else if (lead.owner_name && !lead.address) {
-            const props = await lookupOwnerProperties(lead.owner_name, "suffolk-ny");
+            const props = await lookupOwnerProperties(lead.owner_name, COUNTY, STATE);
             if (props.length > 0) {
               const p = props[0];
               if (!lead.address) lead.address = p.address || null;

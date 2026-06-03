@@ -19,6 +19,10 @@ export interface AssessorProperty {
   zip?: string;
   parcelId?: string;
   ownerName?: string;
+  mailingAddress?: string;
+  mailingCity?: string;
+  mailingState?: string;
+  mailingZip?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -796,6 +800,34 @@ export async function lookupByAddress(
               ownerName: f.OWNER_NAME || undefined,
             };
           }
+        }
+      }
+    } else if (state === 'NY' && countyKey === 'suffolk') {
+      // Suffolk County NY — GIS ArcGIS REST parcel service
+      // Primary: Suffolk County GIS parcel layer (address-based lookup)
+      const qUrl = new URL('https://gis.suffolkcountyny.gov/arcgis/rest/services/Parcels/MapServer/0/query');
+      qUrl.searchParams.set('where', `UPPER(SITUS_ADDRESS) LIKE '${streetNum} ${streetName}%'`);
+      qUrl.searchParams.set('outFields', 'PARCEL_ID,OWNER_NAME,SITUS_ADDRESS,SITUS_CITY,SITUS_ZIP,MAIL_ADDRESS,MAIL_CITY,MAIL_STATE,MAIL_ZIP');
+      qUrl.searchParams.set('returnGeometry', 'false');
+      qUrl.searchParams.set('f', 'json');
+      qUrl.searchParams.set('resultRecordCount', '1');
+      const res = await fetchWithRetry(qUrl.toString());
+      if (res.ok) {
+        const data = await res.json() as { features?: { attributes: Record<string, string> }[] };
+        const f = data.features?.[0]?.attributes;
+        if (f && f.SITUS_ADDRESS) {
+          return {
+            address: f.SITUS_ADDRESS,
+            city: f.SITUS_CITY || 'Riverhead',
+            state: 'NY',
+            zip: f.SITUS_ZIP || undefined,
+            parcelId: f.PARCEL_ID || undefined,
+            ownerName: f.OWNER_NAME || undefined,
+            mailingAddress: f.MAIL_ADDRESS || undefined,
+            mailingCity: f.MAIL_CITY || undefined,
+            mailingState: f.MAIL_STATE || undefined,
+            mailingZip: f.MAIL_ZIP || undefined,
+          };
         }
       }
     }
