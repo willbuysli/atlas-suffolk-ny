@@ -228,6 +228,15 @@ export function finishScrapeRun(id: number, leadsFound: number, error?: string) 
     .run(error ? "error" : "success", leadsFound, error || null, id);
 }
 
+export function getScrapeRuns(limit = 100) {
+  return db.prepare(
+    `SELECT id, county, state, lead_type, started_at, finished_at, status, leads_found, error
+     FROM scrape_runs
+     ORDER BY started_at DESC
+     LIMIT ?`
+  ).all(limit);
+}
+
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 export interface AppSettings {
   smtp_host: string;

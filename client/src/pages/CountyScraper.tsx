@@ -92,6 +92,8 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showRunHistory, setShowRunHistory] = useState(false);
+  const [runHistory, setRunHistory] = useState<Array<{ id: number; county: string; state: string; lead_type: string; started_at: string; finished_at: string | null; status: string; leads_found: number; error: string | null }>>([]);
   const PAGE_SIZE = 50;
 
   const fetchLeads = useCallback(async () => {
@@ -124,21 +126,40 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
 
   useEffect(() => { fetchLeads(); fetchStats(); }, [fetchLeads, fetchStats]);
 
+  // SSE-based scrape progress (replaces polling)
   useEffect(() => {
     if (!scraping) return;
-    const interval = setInterval(async () => {
-      const res = await fetch("/api/scrape/status");
-      const data = await res.json();
-      setScrapeLog(data.log || []);
-      if (!data.in_progress) {
-        setScraping(false);
-        fetchLeads();
-        fetchStats();
-        clearInterval(interval);
-      }
-    }, 2000);
-    return () => clearInterval(interval);
+    const es = new EventSource("/api/scrape/stream");
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setScrapeLog(data.log || []);
+        if (!data.in_progress) {
+          setScraping(false);
+          fetchLeads();
+          fetchStats();
+          es.close();
+        }
+      } catch {}
+    };
+    es.onerror = () => {
+      setScraping(false);
+      fetchLeads();
+      fetchStats();
+      es.close();
+    };
+    return () => es.close();
   }, [scraping, fetchLeads, fetchStats]);
+
+  const fetchRunHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/scrape/runs");
+      const data = await res.json();
+      setRunHistory(data.runs || []);
+    } catch {}
+  }, []);
+
+  useEffect(() => { if (showRunHistory) fetchRunHistory(); }, [showRunHistory, fetchRunHistory]);
 
   const triggerScrape = async () => {
     setScraping(true);
@@ -255,6 +276,11 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
             <History className="w-3.5 h-3.5" />
             Historical Pull
           </button>
+          <button onClick={() => setShowRunHistory(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white/60 border border-white/10 hover:border-white/20 transition-colors">
+            <Database className="w-3.5 h-3.5" />
+            Run History
+          </button>
           <div className="relative">
             <button onClick={() => setShowExportMenu(v => !v)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white/60 border border-white/10 hover:border-white/20 transition-colors">
@@ -316,10 +342,65 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
         </div>
       )}
 
+      {showRunHistory && (
+        <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-white/60" />
+              <h3 className="text-sm font-semibold text-white">Scrape Run History</h3>
+              <span className="text-xs text-white/40">Last 200 runs across all counties and lead types</span>
+            </div>
+            <button onClick={fetchRunHistory} className="text-xs text-white/40 hover:text-white/70 transition-colors flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </button>
+          </div>
+          {runHistory.length === 0 ? (
+            <div className="text-xs text-white/30 text-center py-6">No scrape runs recorded yet. Run a scrape to see history here.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-white/30 border-b border-white/10">
+                    <th className="text-left py-2 pr-4 font-medium">County</th>
+                    <th className="text-left py-2 pr-4 font-medium">Lead Type</th>
+                    <th className="text-left py-2 pr-4 font-medium">Started</th>
+                    <th className="text-left py-2 pr-4 font-medium">Duration</th>
+                    <th className="text-left py-2 pr-4 font-medium">Leads</th>
+                    <th className="text-left py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runHistory.slice(0, 100).map(run => {
+                    const dur = run.finished_at ? Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000) : null;
+                    return (
+                      <tr key={run.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                        <td className="py-1.5 pr-4 text-white/70">{run.county}, {run.state}</td>
+                        <td className="py-1.5 pr-4 text-white/50">{run.lead_type}</td>
+                        <td className="py-1.5 pr-4 text-white/40">{new Date(run.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
+                        <td className="py-1.5 pr-4 text-white/40">{dur !== null ? `${dur}s` : '—'}</td>
+                        <td className="py-1.5 pr-4 font-mono text-white/70">{run.leads_found ?? 0}</td>
+                        <td className="py-1.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            run.status === 'success' ? 'bg-emerald-500/15 text-emerald-400' :
+                            run.status === 'error' ? 'bg-red-500/15 text-red-400' :
+                            'bg-amber-500/15 text-amber-400'
+                          }`}>{run.status}</span>
+                          {run.error && <span className="ml-2 text-red-400/60 truncate max-w-[200px] inline-block align-middle">{run.error}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {scraping && scrapeLog.length > 0 && (
         <div className="bg-black/40 border border-white/10 rounded-xl p-4 font-mono text-xs space-y-1 max-h-40 overflow-y-auto">
           {scrapeLog.map((line, i) => (
-            <div key={i} className={line.startsWith("\u2713") ? "text-emerald-400" : line.startsWith("\u2717") ? "text-red-400" : line.startsWith("\u26a0") ? "text-amber-400" : "text-white/60"}>
+            <div key={i} className={line.startsWith("✓") ? "text-emerald-400" : line.startsWith("✗") ? "text-red-400" : line.startsWith("⚠") ? "text-amber-400" : "text-white/60"}>
               {line}
             </div>
           ))}
@@ -418,7 +499,19 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
                       {lead.lead_type}
                     </span>
                     <span className="text-xs text-white/40">{lead.county}, {lead.state}</span>
-                    {lead.filing_date && <span className="text-xs text-white/30"><span className="text-white/20">Filed</span> {lead.filing_date}</span>}
+                    {lead.filing_date && (() => {
+                      const daysAgo = lead.filing_date ? Math.floor((Date.now() - new Date(lead.filing_date).getTime()) / 86400000) : 999;
+                      const ageBadge = daysAgo <= 3
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : daysAgo <= 7
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        : "bg-white/5 text-white/30 border border-white/10";
+                      return (
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${ageBadge}`}>
+                          Filed {lead.filing_date}{daysAgo <= 3 ? " 🔥" : ""}
+                        </span>
+                      );
+                    })()}
                     {lead.scraped_at && <span className="text-xs text-white/25"><span className="text-white/20">Added</span> {new Date(lead.scraped_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
                   </div>
                   <div className="mt-1.5 flex items-start gap-3 flex-wrap">

@@ -28,9 +28,15 @@ async function scrapeJacksonPreForeclosure(fromDate: string, toDate: string): Pr
   const COUNTY = "Jackson";
   try {
     // Jackson County Recorder of Deeds — Lis Pendens search
+    // NOTE: recorder.jacksongov.org is frequently unreachable from cloud servers (geo-blocked or
+    // firewall-protected). We attempt it but fall through gracefully to the Case.net LIS PENDENS
+    // scraper (scrapeLisPendens) which covers Jackson County via the courts.mo.gov portal.
     const url = `https://recorder.jacksongov.org/search/commonsearch.aspx?mode=advanced`;
-    const res = await fetchWithRetry(url);
-    if (!res.ok) return leads;
+    const res = await fetchWithRetry(url).catch(() => null);
+    if (!res || !res.ok) {
+      console.warn(`[Jackson MO] Pre-Foreclosure: recorder.jacksongov.org unreachable — covered by Case.net LIS PENDENS scraper`);
+      return leads;
+    }
 
     const html = await res.text();
     const $ = cheerio.load(html);

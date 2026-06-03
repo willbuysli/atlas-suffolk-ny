@@ -1004,6 +1004,24 @@ I need you to: [describe what you want]`}</CodeBlock>
             <span>A CSV of all new leads is emailed every day at <strong className="text-white">6:00 AM Eastern Time</strong>. Configure SMTP credentials below to enable delivery. Gmail works with an App Password — enable 2FA first, then create an App Password at <span className="text-blue-300">myaccount.google.com/apppasswords</span>.</span>
           </div>
 
+          {/* Gmail Quick-Setup */}
+          <div className="flex flex-wrap gap-2 pb-1">
+            <button
+              onClick={() => setForm(f => ({ ...f, smtp_host: "smtp.gmail.com", smtp_port: "587", smtp_from: f.smtp_user || "" }))}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs font-medium transition-colors border border-slate-600"
+            >
+              <span>⚡</span> Use Gmail Defaults
+            </button>
+            <a
+              href="https://myaccount.google.com/apppasswords"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-blue-300 rounded text-xs font-medium transition-colors border border-slate-600"
+            >
+              <span>🔑</span> Create Gmail App Password →
+            </a>
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4">
             <InputField
               label="SMTP Host"

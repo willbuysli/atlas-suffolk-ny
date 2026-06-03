@@ -3,7 +3,7 @@ import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import cron from "node-cron";
-import { db, upsertLead, getLeads, updateLeadStatus, updateLeadSkipTrace, getStats, logScrapeRun, finishScrapeRun, getSettings, saveSettings, getKV, setKV } from "./db.js";
+import { db, upsertLead, getLeads, updateLeadStatus, updateLeadSkipTrace, getStats, logScrapeRun, finishScrapeRun, getScrapeRuns, getSettings, saveSettings, getKV, setKV } from "./db.js";
 import { runAllScrapers, getDateRange } from "./scrapers/index.js";
 import { sendDailyReport } from "./email.js";
 
@@ -266,6 +266,26 @@ async function startServer() {
   // GET /api/scrape/status — check if scrape is running
   app.get("/api/scrape/status", (_req, res) => {
     res.json({ in_progress: scrapeInProgress, log: lastScrapeLog });
+  });
+
+  // GET /api/scrape/runs — scrape run history (last 200 runs)
+  app.get("/api/scrape/runs", (_req, res) => {
+    res.json({ runs: getScrapeRuns(200) });
+  });
+
+  // GET /api/scrape/stream — Server-Sent Events for live scrape progress
+  app.get("/api/scrape/stream", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ in_progress: scrapeInProgress, log: lastScrapeLog })}\n\n`);
+    const interval = setInterval(() => {
+      if (res.writableEnded) { clearInterval(interval); return; }
+      res.write(`data: ${JSON.stringify({ in_progress: scrapeInProgress, log: lastScrapeLog })}\n\n`);
+    }, 1000);
+    req.on("close", () => clearInterval(interval));
   });
 
   // POST /api/scrape/historical — pull last N days (up to 90)
