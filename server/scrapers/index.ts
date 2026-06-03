@@ -25,7 +25,7 @@ export async function runAllScrapers(
     stateGroups.get(key)!.push(county);
   }
 
-  for (const [state, stateCounties] of stateGroups) {
+  for (const [state, stateCounties] of Array.from(stateGroups)) {
     // States with a single scrapeAll function (all 11 lead types)
     if (state === "MO") {
       try {

@@ -741,10 +741,13 @@ export async function scrapeBankruptcy(fromDate: string, toDate: string): Promis
         state: "SC",
         lead_type: "Bankruptcy",
         owner_name: caseName || caseNum,
-        address: "",
-        city: "",
-        zip: "",
+        address: "", city: "", zip: "",
+        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+        case_number: caseNum,
         filing_date: pubDate ? formatDate(new Date(pubDate).toISOString().slice(0,10)) : formatDate(fromDate),
+        assessed_value: null, tax_year: null,
+        lender: null, loan_amount: null,
+        sale_date: null, sale_amount: null,
         source_url: link || "https://ecf.scb.uscourts.gov/cgi-bin/rss_outside.pl",
         description: `SC Bankruptcy — ${caseName || caseNum}`,
         raw_data: JSON.stringify({ title, caseNum, caseName, pubDate }),
@@ -764,10 +767,10 @@ export async function scrapeObituaries(fromDate: string, toDate: string): Promis
     const res = await fetchWithRetry(url);
     if (!res.ok) return leads;
     const html = await res.text();
-    const nameMatches = html.matchAll(/<span[^>]*class="[^"]*name[^"]*"[^>]*>([^<]+)<\/span>/gi);
-    const locationMatches = [...html.matchAll(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s*(?:SC|South Carolina)/g)];
-    const names = [...nameMatches].map(m => m[1].trim()).filter(n => n.length > 3);
-    const linkMatches = [...html.matchAll(/href="(\/us\/obituaries\/[^"]+)"/g)].map(m => `https://www.legacy.com${m[1]}`);
+    const nameMatches = Array.from(html.matchAll(/<span[^>]*class="[^"]*name[^"]*"[^>]*>([^<]+)<\/span>/gi));
+    const locationMatches = Array.from(html.matchAll(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s*(?:SC|South Carolina)/g));
+    const names = nameMatches.map(m => m[1].trim()).filter(n => n.length > 3);
+    const linkMatches = Array.from(html.matchAll(/href="(\/us\/obituaries\/[^"]+)"/g)).map(m => `https://www.legacy.com${m[1]}`);
     names.forEach((name, i) => {
       const location = locationMatches[i]?.[1] || "SC";
       leads.push({
@@ -776,10 +779,13 @@ export async function scrapeObituaries(fromDate: string, toDate: string): Promis
         state: "SC",
         lead_type: "Obituary",
         owner_name: name,
-        address: "",
-        city: location,
-        zip: "",
+        address: "", city: location, zip: "",
+        mailing_address: null, mailing_city: null, mailing_state: null, mailing_zip: null,
+        case_number: null,
         filing_date: formatDate(fromDate),
+        assessed_value: null, tax_year: null,
+        lender: null, loan_amount: null,
+        sale_date: null, sale_amount: null,
         source_url: linkMatches[i] || url,
         description: `Obituary — ${name}, ${location}, SC. Potential estate/probate lead.`,
         raw_data: JSON.stringify({ name, location }),
