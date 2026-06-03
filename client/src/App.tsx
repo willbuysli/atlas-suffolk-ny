@@ -17,13 +17,29 @@ import Settings from "./pages/Settings";
 // accentColor: Brand color hex (e.g. "#DC2626" red, "#2563EB" blue)
 // counties:    List of counties the client wants leads for
 export const CLIENT_CONFIG = {
-  companyName: "Atlas",
-  userEmail: "",
-  userPassword: "",
+  companyName: "Will Buys LI",
+  userEmail: "will@willbuysli.com",
+  userPassword: "Will1074$",
   accentColor: "#2563EB",
   counties: [
-    // Example:
-    // { "name": "Harris", "state": "TX", "leadTypes": ["Pre-Foreclosure", "Tax Delinquent", "Probate", "Sheriff Sale"] }
+    {
+      name: "Suffolk",
+      state: "NY",
+      leadTypes: [
+        "Tax Delinquent",
+        "Pre-Foreclosure",
+        "Sheriff Sale",
+        "Probate",
+        "Bankruptcy",
+        "Code Violation",
+        "Vacant/Abandoned",
+        "Divorce",
+        "FSBO",
+        "Obituary",
+        "Fire Damage",
+        "Water Shut-off",
+      ],
+    },
   ],
 };
 // ─────────────────────────────────────────────────────────────────────────────
