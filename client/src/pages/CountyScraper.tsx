@@ -126,6 +126,19 @@ export default function CountyScraper({ counties, accentColor }: CountyScraperPr
 
   useEffect(() => { fetchLeads(); fetchStats(); }, [fetchLeads, fetchStats]);
 
+  // On mount: check if a cron-triggered scrape is already running
+  useEffect(() => {
+    fetch("/api/scrape/status")
+      .then(r => r.json())
+      .then(data => {
+        if (data.in_progress) {
+          setScraping(true);
+          setScrapeLog(data.log || ["Scrape in progress..."]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // SSE-based scrape progress (replaces polling)
   useEffect(() => {
     if (!scraping) return;

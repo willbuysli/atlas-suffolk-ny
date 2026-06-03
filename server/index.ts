@@ -54,6 +54,7 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
   scrapeInProgress = true;
   lastScrapeLog = [];
   let totalNew = 0;
+  const runId = logScrapeRun(fromDate, toDate);
 
   try {
     const counties = CLIENT_CONFIG.counties.map(c => ({
@@ -77,6 +78,11 @@ async function runScrapeJob(fromDate: string, toDate: string): Promise<number> {
     lastScrapeTime = new Date().toISOString();
     setKV("last_scrape_time", lastScrapeTime);
     console.log(`[Scrape] Complete: ${totalNew} new leads`);
+    finishScrapeRun(runId, totalNew);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    finishScrapeRun(runId, totalNew, errMsg);
+    throw e;
   } finally {
     scrapeInProgress = false;
   }
