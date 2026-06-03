@@ -10,6 +10,14 @@ import { sendDailyReport } from "./email.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ─── SYNC DB SETTINGS → process.env (so base.ts proxy helpers pick them up) ──
+function syncEnvFromSettings(): void {
+  const s = getSettings();
+  if (s.scraper_api_key)  process.env.SCRAPER_API_KEY  = s.scraper_api_key;
+  if (s.bright_data_user) process.env.BRIGHT_DATA_USER = s.bright_data_user;
+  if (s.bright_data_pass) process.env.BRIGHT_DATA_PASS = s.bright_data_pass;
+}
+
 // ─── CLIENT CONFIG (injected per client via env vars) ─────────────────────────
 const CLIENT_CONFIG = {
   name: process.env.CLIENT_NAME || "Atlas",
@@ -218,6 +226,7 @@ async function startServer() {
       }
     }
     saveSettings(partial);
+    syncEnvFromSettings(); // keep process.env in sync so scrapers pick up new keys immediately
     res.json({ ok: true });
   });
 
@@ -346,11 +355,15 @@ async function startServer() {
     res.sendFile(path.join(staticPath, "index.html"));
   });
 
+  // Sync DB settings → process.env on startup (keys saved in Settings survive restarts)
+  syncEnvFromSettings();
   const port = process.env.PORT || 3000;
   server.listen(port, () => {
     console.log(`[Atlas] Server running on http://localhost:${port}/`);
     console.log(`[Atlas] Client: ${CLIENT_CONFIG.name}`);
     console.log(`[Atlas] Counties: ${CLIENT_CONFIG.counties.map(c => `${c.name} ${c.state}`).join(", ")}`);
+    console.log(`[Atlas] ScraperAPI: ${process.env.SCRAPER_API_KEY ? "✓ configured" : "not set — add key in Settings"}`);
+    console.log(`[Atlas] Bright Data: ${process.env.BRIGHT_DATA_USER ? "✓ configured" : "not set — add credentials in Settings"}`);
     startDailyCron();
   });
 }

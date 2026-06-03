@@ -1,13 +1,5 @@
 import { Lead, CountyConfig } from "./base.js";
-
-// ─── ADD STATE SCRAPERS HERE ──────────────────────────────────────────────────
-// When building for a new client, add their state scraper imports here.
-// Example:
-//   import * as texas from "./texas.js";
-//   import * as florida from "./florida.js";
-//
-// Then register the state in the runAllScrapers function below.
-// ─────────────────────────────────────────────────────────────────────────────
+import * as suffolkNY from "./suffolk_ny.js";
 
 // Run all scrapers for the configured counties
 export async function runAllScrapers(
@@ -28,23 +20,20 @@ export async function runAllScrapers(
   }
 
   for (const [state, stateCounties] of Array.from(stateGroups)) {
-    // ─── REGISTER STATE SCRAPERS HERE ──────────────────────────────────────
-    // Example for a state with a single scrapeAll function:
-    //
-    // if (state === "TX") {
-    //   try {
-    //     onProgress?.(`Scraping Texas (all lead types)...`);
-    //     const leads = await texas.scrapeAll(fromDate, toDate);
-    //     allLeads.push(...leads);
-    //     onProgress?.(`✓ TX: ${leads.length} leads found`);
-    //   } catch (e) {
-    //     const msg = `Error scraping TX: ${(e as Error).message}`;
-    //     errors.push(msg);
-    //     onProgress?.(`✗ ${msg}`);
-    //   }
-    //   continue;
-    // }
-    // ───────────────────────────────────────────────────────────────────────
+    // Suffolk County, NY — all 12 lead types
+    if (state === "NY") {
+      try {
+        onProgress?.(`Scraping Suffolk County, NY (12 lead types)...`);
+        const leads = await suffolkNY.scrapeAll(fromDate, toDate, onProgress);
+        allLeads.push(...leads);
+        onProgress?.(`✓ NY: ${leads.length} leads found`);
+      } catch (e) {
+        const msg = `Error scraping NY: ${(e as Error).message}`;
+        errors.push(msg);
+        onProgress?.(`✗ ${msg}`);
+      }
+      continue;
+    }
 
     // No scraper registered for this state
     const msg = `No scraper registered for state: ${state}`;
