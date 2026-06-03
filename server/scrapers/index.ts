@@ -5,7 +5,6 @@ import * as wisconsin from "./wisconsin.js";
 import * as alabama from "./alabama.js";
 import * as ohio from "./ohio.js";
 import * as southCarolina from "./south_carolina.js";
-import * as texas from "./texas.js";
 
 // Run all scrapers for the configured counties
 export async function runAllScrapers(
@@ -48,19 +47,6 @@ export async function runAllScrapers(
         onProgress?.(`✓ WI: ${leads.length} leads found`);
       } catch (e) {
         const msg = `Error scraping WI: ${(e as Error).message}`;
-        errors.push(msg);
-        onProgress?.(`✗ ${msg}`);
-      }
-      continue;
-    }
-    if (state === "TX") {
-      try {
-        onProgress?.(`Scraping Texas (all 11 lead types)...`);
-        const leads = await texas.scrapeAll(fromDate, toDate);
-        allLeads.push(...leads);
-        onProgress?.(`✓ TX: ${leads.length} leads found`);
-      } catch (e) {
-        const msg = `Error scraping TX: ${(e as Error).message}`;
         errors.push(msg);
         onProgress?.(`✗ ${msg}`);
       }
