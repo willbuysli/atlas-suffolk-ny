@@ -1,5 +1,5 @@
 // Atlas App — Main routing and auth
-// CLIENT_CONFIG is injected per-client at build time
+// CLIENT_CONFIG is customized per client — update these values for each new build
 
 import { useState, useEffect } from "react";
 import { Route, Switch, Redirect, useLocation } from "wouter";
@@ -10,130 +10,21 @@ import PropertyCondition from "./pages/PropertyCondition";
 import Settings from "./pages/Settings";
 
 
-// ─── CLIENT CONFIG (customized per client) ───────────────────────────────────
+// ─── CLIENT CONFIG (customize per client) ────────────────────────────────────
+// companyName: Client's business name shown in the UI
+// userEmail:   Client's login email (must match ADMIN_EMAIL env var)
+// userPassword: Client's login password (must match ADMIN_PASSWORD env var)
+// accentColor: Brand color hex (e.g. "#DC2626" red, "#2563EB" blue)
+// counties:    List of counties the client wants leads for
 export const CLIENT_CONFIG = {
-  companyName: "National Houses",
-  userEmail: "tina@nationalhouses.com",
-  userPassword: "Tina1074$",
-  accentColor: "#DC2626",
+  companyName: "Atlas",
+  userEmail: "",
+  userPassword: "",
+  accentColor: "#2563EB",
   counties: [
-  {
-    "name": "Jackson",
-    "state": "MO",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate",
-      "Sheriff Sale",
-      "Lis Pendens"
-    ]
-  },
-  {
-    "name": "Clay",
-    "state": "MO",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate"
-    ]
-  },
-  {
-    "name": "Platte",
-    "state": "MO",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Cass",
-    "state": "MO",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Madison",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate",
-      "Sheriff Sale"
-    ]
-  },
-  {
-    "name": "Limestone",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Morgan",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Montgomery",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate"
-    ]
-  },
-  {
-    "name": "Autauga",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Elmore",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Jefferson",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate",
-      "Sheriff Sale"
-    ]
-  },
-  {
-    "name": "Shelby",
-    "state": "AL",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent"
-    ]
-  },
-  {
-    "name": "Hamilton",
-    "state": "OH",
-    "leadTypes": [
-      "Pre-Foreclosure",
-      "Tax Delinquent",
-      "Probate",
-      "Sheriff Sale",
-      "Lis Pendens"
-    ]
-  }
-],
+    // Example:
+    // { "name": "Harris", "state": "TX", "leadTypes": ["Pre-Foreclosure", "Tax Delinquent", "Probate", "Sheriff Sale"] }
+  ],
 };
 // ─────────────────────────────────────────────────────────────────────────────
 

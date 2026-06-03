@@ -499,11 +499,11 @@ export default function Settings() {
                 {[
                   { icon: "🖥️", label: "Server Runtime", value: "Node.js + Express on Railway (your account). Handles API routes, the daily cron, and serves the React frontend as static files." },
                   { icon: "🗄️", label: "Database", value: "SQLite via node-sqlite3-wasm. Stored on Railway's persistent volume — survives deployments and restarts. All leads are permanent." },
-                  { icon: "🔍", label: "Scrapers", value: "server/scrapers/ — one file per state: missouri.ts, ohio.ts, alabama.ts. Each exports scrapeXxx(county, fromDate, toDate) functions." },
+                  { icon: "🔍", label: "Scrapers", value: "server/scrapers/ — one file per state (e.g. texas.ts, florida.ts). Each exports scrapeXxx(county, fromDate, toDate) functions." },
                   { icon: "🏠", label: "Assessor Enrichment", value: "server/scrapers/assessor.ts — lookupByAddress() and lookupOwnerProperties() for all counties. Queries county ArcGIS FeatureServers and auditor portals." },
                   { icon: "⏰", label: "Cron Scheduler", value: "node-cron in server/index.ts — cron expression '0 11 * * *' with timezone America/New_York = 6:00 AM EST. Restart-safe." },
                   { icon: "🎨", label: "Frontend", value: "React 19 + Tailwind 4 + shadcn/ui in client/src/. Served by Express as static files. Routes: / (login), /leads (dashboard), /settings, /property-condition." },
-                  { icon: "📦", label: "GitHub Repo", value: "dealsnh/atlas-national-houses — Railway auto-deploys on every push to main branch. Deploy takes 3–4 minutes." },
+                  { icon: "📦", label: "GitHub Repo", value: "[client-github]/atlas-[client-name] — Railway auto-deploys on every push to main branch. Deploy takes 3–4 minutes." },
                   { icon: "🔑", label: "Settings Storage", value: "API keys and SMTP credentials are stored in the SQLite DB via the settings table. They persist across deployments." },
                 ].map(item => (
                   <div key={item.label} className="flex gap-2 bg-slate-900/40 rounded-lg p-2.5">
@@ -522,9 +522,7 @@ export default function Settings() {
   db.ts                 ← SQLite schema, upsertLead(), getStats(), settings
   scrapers/
     index.ts            ← runAllScrapers() dispatcher — routes to state scrapers
-    missouri.ts         ← MO scrapers: Jackson/Clay/Cass/Platte
-    ohio.ts             ← OH scrapers: Hamilton County (Cincinnati)
-    alabama.ts          ← AL scrapers: Jefferson/Madison/Morgan/Montgomery/Shelby/Limestone/Autauga/Elmore
+    [state].ts          ← State scrapers: one file per state, added per client
     assessor.ts         ← lookupByAddress() + lookupOwnerProperties() for all counties
     base.ts             ← Lead interface, makeId(), formatDate(), fetchWithRetry()
 client/src/
@@ -653,12 +651,12 @@ client/src/
                 </Step>
                 <Step n="3" label="Start Every Manus Session With This Prompt">
                   <p className="text-slate-400 mb-1.5">Open a new Manus task and paste this at the start (fill in your values):</p>
-                  <CodeBlock>{`I have an Atlas lead scraper running on Railway (project: atlas-national-houses).
-The code is at github.com/dealsnh/atlas-national-houses.
-My GitHub token is [ghp_...] (repo scope on dealsnh account).
+                  <CodeBlock>{`I have an Atlas lead scraper running on Railway (project: atlas-[client-name]).
+The code is at github.com/[client-github]/atlas-[client-name].
+My GitHub token is [ghp_...] (repo scope on [client-github] account).
 My Railway token is [your Railway token].
-The live URL is https://web-production-aa586.up.railway.app
-Login: tina@nationalhouses.com / Tina1074$
+The live URL is https://[your-railway-url].up.railway.app
+Login: [client-email] / [admin-password]
 
 I need you to: [describe what you want]`}</CodeBlock>
                 </Step>
@@ -1062,7 +1060,7 @@ I need you to: [describe what you want]`}</CodeBlock>
               label="Recipients"
               value={form.email_recipients || ""}
               onChange={set("email_recipients")}
-              placeholder="tina@nationalhouses.com, team@nationalhouses.com"
+              placeholder="client@example.com, team@example.com"
               hint="Comma-separated list of email addresses to receive the daily CSV"
             />
           </div>
